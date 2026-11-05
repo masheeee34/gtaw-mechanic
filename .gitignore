@@ -1,0 +1,7 @@
+node_modules/
+client/dist/
+web/dist/
+server/dist/
+server/**/bin/
+server/**/obj/
+*.log

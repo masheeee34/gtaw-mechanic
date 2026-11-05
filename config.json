@@ -1,0 +1,90 @@
+{
+  "permission": "gtaw.mechanic",
+  "interactionDistance": 6.0,
+  "historyLimit": 25,
+  "thresholds": { "good": 70, "worn": 35 },
+  "diagnostic": { "duration": 3000 },
+  "garages": [
+    {
+      "id": "burton", "label": "Los Santos Customs - Burton", "center": [-337.4, -136.9, 39.0], "radius": 25.0,
+      "rack": [-337.4, -136.9, 39.0]
+    },
+    {
+      "id": "la_mesa", "label": "La Mesa Auto Repair", "center": [731.8, -1088.8, 22.2], "radius": 20.0,
+      "rack": [731.8, -1088.8, 22.2]
+    }
+  ],
+  "items": {
+    "engine_parts": {
+      "label": "Pièces moteur", "description": "Pistons, joints et courroies pour une révision moteur.",
+      "carry": { "model": "prop_cs_cardbox_01" }
+    },
+    "fuel_tank": {
+      "label": "Réservoir", "description": "Réservoir de carburant étanche, prêt à monter.",
+      "carry": { "model": "prop_jerrycan_01a", "offset": [0.1, 0.05, 0.25], "rotation": [-100.0, 290.0, 0.0] }
+    },
+    "body_panel": {
+      "label": "Panneaux de carrosserie", "description": "Panneaux et portières de remplacement pour la tôlerie.",
+      "carry": { "model": "prop_car_door_01", "offset": [0.0, 0.1, 0.3], "rotation": [-90.0, 0.0, 180.0] }
+    },
+    "glass_kit": {
+      "label": "Kit vitrage", "description": "Pare-brise et vitres latérales.",
+      "carry": { "model": "prop_cs_cardbox_01" }
+    },
+    "tire": {
+      "label": "Pneu", "description": "Pneu routier standard, jante comprise.",
+      "carry": { "model": "prop_wheel_tyre", "offset": [0.0, 0.15, 0.3], "rotation": [0.0, 90.0, 0.0] }
+    }
+  },
+  "startingStock": { "engine_parts": 5, "fuel_tank": 3, "body_panel": 10, "glass_kit": 4, "tire": 12 },
+  "parts": [
+    {
+      "id": "engine", "type": "engine", "label": "Moteur", "category": "Mécanique",
+      "item": "engine_parts", "quantity": 1,
+      "animation": { "dict": "mini@repair", "name": "fixing_a_ped" },
+      "minigame": { "type": "skillcheck", "rounds": 3, "zoneSize": 0.14, "speed": 0.9 }
+    },
+    {
+      "id": "fuel_tank", "type": "fuel_tank", "label": "Réservoir", "category": "Mécanique",
+      "item": "fuel_tank", "quantity": 1,
+      "animation": { "dict": "mini@repair", "name": "fixing_a_ped" },
+      "minigame": { "type": "wireconnect", "wires": 4, "timeLimit": 15 }
+    },
+    {
+      "id": "body", "type": "body", "label": "Tôlerie", "category": "Carrosserie",
+      "item": "body_panel", "quantity": 2,
+      "animation": { "scenario": "WORLD_HUMAN_WELDING" },
+      "minigame": { "type": "pressuregauge", "duration": 8, "decay": 0.12, "boost": 0.14, "minZone": 0.38, "maxZone": 0.72 }
+    },
+    {
+      "id": "windows", "type": "windows", "label": "Vitres", "category": "Carrosserie",
+      "item": "glass_kit", "quantity": 1,
+      "animation": { "scenario": "WORLD_HUMAN_MAID_CLEAN" },
+      "minigame": { "type": "skillcheck", "rounds": 2, "zoneSize": 0.2, "speed": 0.7 }
+    },
+    {
+      "id": "tire_fl", "type": "tire", "wheel": 0, "label": "Pneu avant gauche", "category": "Roues",
+      "item": "tire", "quantity": 1,
+      "animation": { "dict": "anim@amb@clubhouse@tutorial@bkr_tut_ig3@", "name": "machinic_loop_mechandplayer" },
+      "minigame": { "type": "lugnuts", "nuts": 5, "timeLimit": 12, "maxMistakes": 1 }
+    },
+    {
+      "id": "tire_fr", "type": "tire", "wheel": 1, "label": "Pneu avant droit", "category": "Roues",
+      "item": "tire", "quantity": 1,
+      "animation": { "dict": "anim@amb@clubhouse@tutorial@bkr_tut_ig3@", "name": "machinic_loop_mechandplayer" },
+      "minigame": { "type": "lugnuts", "nuts": 5, "timeLimit": 12, "maxMistakes": 1 }
+    },
+    {
+      "id": "tire_rl", "type": "tire", "wheel": 4, "label": "Pneu arrière gauche", "category": "Roues",
+      "item": "tire", "quantity": 1,
+      "animation": { "dict": "anim@amb@clubhouse@tutorial@bkr_tut_ig3@", "name": "machinic_loop_mechandplayer" },
+      "minigame": { "type": "lugnuts", "nuts": 5, "timeLimit": 12, "maxMistakes": 1 }
+    },
+    {
+      "id": "tire_rr", "type": "tire", "wheel": 5, "label": "Pneu arrière droit", "category": "Roues",
+      "item": "tire", "quantity": 1,
+      "animation": { "dict": "anim@amb@clubhouse@tutorial@bkr_tut_ig3@", "name": "machinic_loop_mechandplayer" },
+      "minigame": { "type": "lugnuts", "nuts": 5, "timeLimit": 12, "maxMistakes": 1 }
+    }
+  ]
+}

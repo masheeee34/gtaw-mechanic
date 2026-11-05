@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The FiveM script. FXServer loads assemblies ending in .net.dll from server/dist (see fxmanifest.lua). -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>GtawMechanic.Server.net</AssemblyName>
+    <RootNamespace>GtawMechanic.Server</RootNamespace>
+    <OutputPath>..\dist\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Provided by FXServer at runtime: compile against it, never ship it. -->
+    <PackageReference Include="CitizenFX.Core.Server" Version="1.0.26803" ExcludeAssets="runtime" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="3.2.7" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GtawMechanic.Core\GtawMechanic.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MySqlConnector 0.69 is pinned by Pomelo 3.2.7; the fix (2.6.1) cannot load on FXServer's Mono.
+         The vulnerable setup is refused at startup instead: see ConnectionStringCheck. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-473q-m89c-ghf8" />
+  </ItemGroup>
+
+</Project>
