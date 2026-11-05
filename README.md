@@ -92,28 +92,6 @@ server/
 - MySQL or MariaDB
 - To build: Node.js 20+ and the .NET SDK 8+
 
-## Installation
-
-1. Build the resource:
-   ```bash
-   npm install
-   npm run build
-   ```
-2. Put the `gtaw-mechanic` folder in your server's `resources` folder.
-3. Add to `server.cfg`:
-   ```cfg
-   set gtaw_mechanic_db "Server=127.0.0.1;Database=gtaw;User=root;Password=;"
-
-   add_ace group.mechanic gtaw.mechanic allow
-   add_principal identifier.fivem:000000 group.mechanic
-
-   add_ace group.admin command.mecano_restock allow
-
-   ensure gtaw-mechanic
-   ```
-
-On start, the server creates its two tables (`mechanic_stock`, `mechanic_repairs`) from `sql/install.sql` and gives every garage its starting stock.
-
 ## Usage
 
 - **F7** (rebindable in the game's key bindings) or `/mecano`, next to a vehicle, inside a garage.
@@ -135,6 +113,8 @@ Everything lives in `config.json`:
 | `parts` | What can be repaired: type, item and quantity used, animation, mini-game settings |
 
 Both sides validate the file on start and fail with a readable message if it is wrong.
+
+The MySQL connection string comes from the `gtaw_mechanic_db` convar. On start, the server creates its two tables (`mechanic_stock`, `mechanic_repairs`) from `sql/install.sql` and gives every garage its starting stock.
 
 ## Development
 
