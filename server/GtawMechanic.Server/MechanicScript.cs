@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using CitizenFX.Core;
 using CitizenFX.Core.Native;
 using GtawMechanic.Core;
@@ -33,6 +34,7 @@ namespace GtawMechanic.Server
         private readonly MechanicService _service;
         private readonly PartsInHand _partsInHand = new PartsInHand();
         private readonly Emotes _emotes;
+        private readonly Cooldown _noteCooldown;
         private bool _ready;
 
         public MechanicScript()
@@ -40,6 +42,7 @@ namespace GtawMechanic.Server
             _resourceName = API.GetCurrentResourceName();
             _config = MechanicConfig.Parse(API.LoadResourceFile(_resourceName, "config.json"));
             _emotes = new Emotes(_config, () => DateTime.UtcNow);
+            _noteCooldown = new Cooldown(TimeSpan.FromSeconds(1), () => DateTime.UtcNow);
 
             var connectionString = API.GetConvar(ConnectionConvar, string.Empty);
             var problem = string.IsNullOrWhiteSpace(connectionString)
@@ -63,6 +66,8 @@ namespace GtawMechanic.Server
             EventHandlers[$"{EventPrefix}:returnPart"] += new Action<Player, int>(OnReturnPart);
             EventHandlers[$"{EventPrefix}:repair"] += new Action<Player, int, string, int, string>(OnRepair);
             EventHandlers[$"{EventPrefix}:ame"] += new Action<Player, string, string>(OnEmote);
+            EventHandlers[$"{EventPrefix}:addNote"] += new Action<Player, int, string, int, float, float, float, string>(OnAddNote);
+            EventHandlers[$"{EventPrefix}:deleteNote"] += new Action<Player, int, string, int, long>(OnDeleteNote);
             EventHandlers["playerDropped"] += new Action<Player, string>(OnPlayerDropped);
             API.RegisterCommand("mecano_restock", new Action<int, List<object>, string>(OnRestock), true);
         }
@@ -105,7 +110,8 @@ namespace GtawMechanic.Server
             {
                 var stock = await _service.GetStockAsync(access.Garage.Id);
                 var history = await _service.GetHistoryAsync(access.Plate);
-                Respond(player, requestId, Success(new { plate = access.Plate, stock, history }));
+                var notes = await _service.GetNotesAsync(access.Plate);
+                Respond(player, requestId, Success(new { plate = access.Plate, stock, history, notes }));
             }
             catch (Exception exception)
             {
@@ -205,6 +211,40 @@ namespace GtawMechanic.Server
             }
         }
 
+        // Notes pinned on the vehicle: same checks as opening the inspection, the plate read here, and
+        // one change per second per player.
+        private async void OnAddNote([FromSource] Player player, int requestId, string garageId, int vehicleNetId, float x, float y, float z, string text)
+        {
+            await ChangeNotes(player, requestId, garageId, vehicleNetId, plate => _service.AddNoteAsync(plate, x, y, z, text, player.Name));
+        }
+
+        private async void OnDeleteNote([FromSource] Player player, int requestId, string garageId, int vehicleNetId, long noteId)
+        {
+            await ChangeNotes(player, requestId, garageId, vehicleNetId, plate => _service.DeleteNoteAsync(plate, noteId));
+        }
+
+        private async Task ChangeNotes(Player player, int requestId, string garageId, int vehicleNetId, Func<string, Task<NotesResult>> change)
+        {
+            var access = AuthorizeAtVehicle(player, garageId, vehicleNetId);
+            if (access.Error == null && !_noteCooldown.TryUse(player.Handle)) access = Access.Denied(Errors.TooFast);
+            if (access.Error != null)
+            {
+                Respond(player, requestId, Failure(access.Error));
+                return;
+            }
+
+            try
+            {
+                var result = await change(access.Plate);
+                Respond(player, requestId, result.Success ? Success(new { notes = result.Notes }) : Failure(result.Error));
+            }
+            catch (Exception exception)
+            {
+                Log($"^1Échec de la mise à jour des notes pour {player.Name} : {exception.Message}^7");
+                Respond(player, requestId, Failure(Errors.Database));
+            }
+        }
+
         // /ame: relays a mechanic's action to every client, which shows it above the head if close enough.
         private void OnEmote([FromSource] Player player, string action, string partId)
         {
@@ -216,6 +256,7 @@ namespace GtawMechanic.Server
         private async void OnPlayerDropped([FromSource] Player player, string reason)
         {
             _emotes.Forget(player.Handle);
+            _noteCooldown.Forget(player.Handle);
             try
             {
                 await PutBackHeldPartAsync(player.Handle);

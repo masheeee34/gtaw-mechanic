@@ -17,7 +17,7 @@ describe('LugNuts', () => {
     for (const index of [1, 3, 0, 2, 4]) await userEvent.click(nuts()[index]);
 
     expect(nuts()[3]).toHaveAttribute('aria-pressed', 'true');
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true, expect.any(Number)));
   });
 
   it('fails after too many wrong nuts', async () => {
@@ -27,8 +27,16 @@ describe('LugNuts', () => {
     for (const index of [0, 1, 1]) await userEvent.click(nuts()[index]);
 
     expect(screen.getByText('Erreurs 2/1')).toBeInTheDocument();
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false, 0));
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LugNuts modes', () => {
+  it('asks to loosen the nuts when taking the old wheel off', () => {
+    render(<LugNuts nuts={5} timeLimit={30} maxMistakes={1} mode="loosen" onComplete={vi.fn()} />);
+
+    expect(screen.getByText(/Desserrez les écrous en étoile/)).toBeInTheDocument();
   });
 });
 
@@ -41,7 +49,7 @@ describe('SkillCheck', () => {
     fireEvent.keyDown(window, { code: 'Space' });
 
     expect(screen.getByTestId('skill-track')).toHaveClass('miss');
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false, 0));
   });
 
   it('shows one marker per round', () => {
@@ -66,7 +74,7 @@ describe('WireConnect', () => {
       await userEvent.click(destination(mapping[index]));
     }
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true, expect.any(Number)));
   });
 
   it('fails after two wrong connections', async () => {
@@ -80,7 +88,7 @@ describe('WireConnect', () => {
     await userEvent.click(source(0));
     await userEvent.click(destination(wrong));
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false, 0));
   });
 });
 
@@ -90,7 +98,7 @@ describe('PressureGauge', () => {
     render(<PressureGauge duration={0.2} decay={0} boost={0.1} minZone={0.4} maxZone={0.7} onComplete={onComplete} />);
 
     expect(screen.getByText('Zone verte')).toBeInTheDocument();
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true), { timeout: 2000 });
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true, expect.any(Number)), { timeout: 2000 });
   });
 
   it('bursts when the mechanic pumps too much', async () => {
@@ -101,7 +109,7 @@ describe('PressureGauge', () => {
       fireEvent.pointerDown(screen.getByRole('img'));
       expect(screen.getByText('Surpression !')).toBeInTheDocument();
     });
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false, 0));
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });

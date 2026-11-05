@@ -1,6 +1,6 @@
 // Everything that reads or changes the vehicle through GTA natives.
 
-const WINDOW_BONES = { 0: 'window_lf', 1: 'window_rf', 2: 'window_lr', 3: 'window_rr', 6: 'windscreen', 7: 'windscreen_r' };
+export const WINDOW_BONES = { 0: 'window_lf', 1: 'window_rf', 2: 'window_lr', 3: 'window_rr', 6: 'windscreen', 7: 'windscreen_r' };
 export const WHEEL_BONES = { 0: 'wheel_lf', 1: 'wheel_rf', 4: 'wheel_lr', 5: 'wheel_rr' };
 const DOOR_COUNT = 6;
 
@@ -21,6 +21,9 @@ export function readVehicleState(vehicle) {
 
   return {
     engineHealth: GetVehicleEngineHealth(vehicle),
+    engineTemperature: GetVehicleEngineTemperature(vehicle),
+    oilLevel: GetVehicleOilLevel(vehicle),
+    fuelLevel: GetVehicleFuelLevel(vehicle),
     bodyHealth: GetVehicleBodyHealth(vehicle),
     tankHealth: GetVehiclePetrolTankHealth(vehicle),
     wheels: indexesWithBone(vehicle, WHEEL_BONES).map((index) => ({
@@ -33,13 +36,14 @@ export function readVehicleState(vehicle) {
   };
 }
 
-export function applyRepair(vehicle, part) {
+/** Repairs a part; `level` (0 to 1) is how much of its health it gets back, from the mini-game quality. */
+export function applyRepair(vehicle, part, level = 1) {
   switch (part.type) {
     case 'engine':
-      SetVehicleEngineHealth(vehicle, 1000.0);
+      SetVehicleEngineHealth(vehicle, 1000.0 * level);
       break;
     case 'fuel_tank':
-      SetVehiclePetrolTankHealth(vehicle, 1000.0);
+      SetVehiclePetrolTankHealth(vehicle, 1000.0 * level);
       break;
     case 'tire':
       SetVehicleTyreFixed(vehicle, part.wheel);
@@ -48,7 +52,7 @@ export function applyRepair(vehicle, part) {
       Object.keys(WINDOW_BONES).forEach((index) => FixVehicleWindow(vehicle, Number(index)));
       break;
     case 'body':
-      repairBody(vehicle);
+      repairBody(vehicle, level);
       break;
     default:
       throw new Error(`Unknown part type "${part.type}".`);
@@ -57,7 +61,7 @@ export function applyRepair(vehicle, part) {
 
 // GTA can only restore doors and deformation with SetVehicleFixed, which repairs the whole vehicle.
 // Take a snapshot first and break the other parts again, so only the bodywork changes.
-function repairBody(vehicle) {
+function repairBody(vehicle, level) {
   const before = readVehicleState(vehicle);
   SetVehicleFixed(vehicle);
   SetVehicleDeformationFixed(vehicle);
@@ -65,7 +69,7 @@ function repairBody(vehicle) {
   SetVehiclePetrolTankHealth(vehicle, before.tankHealth);
   before.wheels.filter((wheel) => wheel.burst).forEach((wheel) => SetVehicleTyreBurst(vehicle, wheel.index, wheel.onRim, 1000.0));
   before.windows.broken.forEach((index) => SmashVehicleWindow(vehicle, index));
-  SetVehicleBodyHealth(vehicle, 1000.0);
+  SetVehicleBodyHealth(vehicle, 1000.0 * level);
 }
 
 /** Closest vehicle to the player within `maxDistance` meters, or 0. */

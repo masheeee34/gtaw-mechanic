@@ -12,19 +12,16 @@ namespace GtawMechanic.Core
     {
         private static readonly HashSet<string> Actions = new HashSet<string>
         {
-            "inspect", "take", "install", "done", "failed", "abandon",
+            "inspect", "take", "install", "remove", "refit", "done", "rushed", "failed", "abandon",
         };
 
-        private static readonly TimeSpan Cooldown = TimeSpan.FromMilliseconds(750);
-
         private readonly MechanicConfig _config;
-        private readonly Func<DateTime> _now;
-        private readonly Dictionary<string, DateTime> _lastByPlayer = new Dictionary<string, DateTime>();
+        private readonly Cooldown _cooldown;
 
         public Emotes(MechanicConfig config, Func<DateTime> now)
         {
             _config = config;
-            _now = now;
+            _cooldown = new Cooldown(TimeSpan.FromMilliseconds(750), now);
         }
 
         /// <summary>True when the emote is valid and the player is not spamming them.</summary>
@@ -34,13 +31,9 @@ namespace GtawMechanic.Core
             var needsPart = action != "inspect";
             if (needsPart && _config.FindPart(partId) == null) return false;
             if (!needsPart && !string.IsNullOrEmpty(partId)) return false;
-
-            var now = _now();
-            if (_lastByPlayer.TryGetValue(playerId, out var last) && now - last < Cooldown) return false;
-            _lastByPlayer[playerId] = now;
-            return true;
+            return _cooldown.TryUse(playerId);
         }
 
-        public void Forget(string playerId) => _lastByPlayer.Remove(playerId);
+        public void Forget(string playerId) => _cooldown.Forget(playerId);
     }
 }

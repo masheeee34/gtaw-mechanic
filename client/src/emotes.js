@@ -40,8 +40,14 @@ export function emoteText(action, part, items) {
       return `attrape ${CARRIED[part.item] ?? (items[part.item]?.label ?? part.item).toLowerCase()} sur l'étagère.`;
     case 'install':
       return (WORK[part.type] ?? (() => `se met au travail sur ${subject}.`))(part);
+    case 'remove':
+      return `retire ${subject} et la pose au sol.`;
+    case 'refit':
+      return 'met une roue neuve en place et serre les écrous en étoile.';
     case 'done':
       return `termine de réparer ${subject}.`;
+    case 'rushed':
+      return `répare ${subject} à la va-vite.`;
     case 'failed':
       return `peine sur ${subject} et doit s'y reprendre.`;
     case 'abandon':

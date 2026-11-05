@@ -38,16 +38,46 @@ describe('App', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('plays the diagnostic scan, then opens the menu', () => {
-    stubClient({});
+  it('plays the 3D scan, then opens the menu', () => {
+    vi.useFakeTimers();
+    try {
+      stubClient({});
+      render(<App />);
+
+      send('open', { ...session, scan: 3000 });
+      expect(screen.getByRole('dialog', { name: 'Diagnostic en cours' })).toHaveTextContent('Tôlerie');
+      expect(menu()).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(3000));
+      expect(screen.queryByRole('dialog', { name: 'Diagnostic en cours' })).not.toBeInTheDocument();
+      expect(menu()).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('goes back to the world after the first step of a tire change', async () => {
+    stubClient({ 'repair:start': { ok: true, data: null }, 'repair:finish': { ok: true, data: null } });
     render(<App />);
-
-    send('scan', { duration: 3000, steps: ['Moteur', 'Tôlerie'] });
-    expect(screen.getByRole('dialog', { name: 'Diagnostic en cours' })).toHaveTextContent('Tôlerie');
-
     send('open', session);
-    expect(screen.queryByRole('dialog', { name: 'Diagnostic en cours' })).not.toBeInTheDocument();
-    expect(menu()).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Réparer Pneu avant gauche' }));
+    await waitFor(() => expect(menu()).not.toBeInTheDocument());
+    send('minigame', { partId: 'tire_fl', minigame: { ...TIRE_MINIGAME, mode: 'loosen' } });
+    for (const index of [1, 3, 0, 2, 4]) await userEvent.click(screen.getAllByRole('button', { name: /^Écrou/ })[index]);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Réparation/ })).not.toBeInTheDocument());
+    expect(menu()).not.toBeInTheDocument();
+  });
+
+  it('shows the advised repair order and moves the camera onto a part from it', async () => {
+    const fetchMock = stubClient({ 'view:focus': { ok: true, data: null } });
+    render(<App />);
+    send('open', session);
+
+    await userEvent.click(screen.getByRole('button', { name: /^À faire en premier/ }));
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/view:focus$/), expect.objectContaining({ body: expect.stringContaining('"id"') }));
   });
 
   it('runs a whole tire repair: menu steps aside, lug nut mini-game, then the updated diagnosis', async () => {
@@ -75,11 +105,11 @@ describe('App', () => {
     const nuts = await screen.findAllByRole('button', { name: /^Écrou/ });
     for (const index of [0, 2, 4, 1, 3]) await userEvent.click(nuts[index]);
 
-    expect(await screen.findByText('Réparation terminée : Pneu avant gauche (1× Pneu).')).toBeInTheDocument();
+    expect(await screen.findByText(/^Réparation terminée : Pneu avant gauche \(1× Pneu\), travail (soigné|correct|bâclé)\.$/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Réparer Pneu avant gauche' })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       'https://gtaw-mechanic/repair:finish',
-      expect.objectContaining({ body: JSON.stringify({ partId: 'tire_fl', success: true, cancelled: false }) }),
+      expect.objectContaining({ body: expect.stringMatching(/^\{"partId":"tire_fl","success":true,"cancelled":false,"quality":[\d.]+\}$/) }),
     );
   });
 

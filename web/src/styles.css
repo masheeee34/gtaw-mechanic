@@ -1447,6 +1447,224 @@ kbd {
   }
 }
 
+/* 3D scan: markers appear one by one while the camera turns around the car */
+
+.scan-hud {
+  position: fixed;
+  top: 50%;
+  right: 2vw;
+  width: 340px;
+  transform: translateY(-50%);
+}
+
+.vehicle-view.revealing {
+  cursor: default;
+}
+
+.vehicle-view.revealing .marker {
+  animation: marker-reveal 320ms ease-out both;
+}
+
+@keyframes marker-reveal {
+  from {
+    opacity: 0;
+    transform: translate(-9px, -50%) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-9px, -50%);
+  }
+}
+
+/* Dents, advised step, readings, advice */
+
+.marker-dot {
+  position: relative;
+}
+
+.marker.dent .marker-dot {
+  width: 13px;
+  height: 13px;
+  border-width: 3px;
+}
+
+.marker.dent .marker-text {
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+
+.marker-step {
+  position: absolute;
+  top: -11px;
+  left: -11px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.part-row .metrics {
+  margin: 8px 0 0 18px;
+}
+
+.metrics dt {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.metrics dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.advice {
+  display: grid;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-card);
+  background: var(--accent-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.advice:hover strong {
+  color: var(--accent);
+}
+
+.advice-label {
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.advice strong {
+  font-size: 14px;
+}
+
+.advice-reason {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.part-step {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: -5px;
+  border-radius: 50%;
+  background: var(--status);
+  color: #15161d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.vehicle-view-hint .button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A dot only: the name shows on hover */
+
+.marker.compact .marker-dot {
+  width: 12px;
+  height: 12px;
+  border-width: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.marker.compact .marker-text {
+  display: none;
+}
+
+.marker.compact:hover {
+  z-index: 1;
+  opacity: 1;
+}
+
+.marker.compact:hover .marker-text {
+  display: flex;
+}
+
+/* Notes pinned on the car */
+
+.marker.note {
+  --status: var(--accent);
+  --status-soft: rgba(245, 165, 36, 0.3);
+}
+
+.marker.note .marker-dot {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.note-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.note-form {
+  display: grid;
+  gap: 8px;
+}
+
+.note-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  resize: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  outline: 0;
+  background: var(--bg-card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.note-form textarea:focus {
+  border-color: var(--accent-border);
+}
+
+.note-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* Interaction prompt (GTAW style): bottom centre, amber keycap */
 
 .prompt {

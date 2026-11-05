@@ -7,8 +7,16 @@ export interface Condition {
   status: PartStatus;
 }
 
+/** A raw reading from the game, shown in a part's detail ("Température", "91 °C"). */
+export interface PartMetric {
+  label: string;
+  value: string;
+}
+
 export interface PartDiagnosis {
   id: string;
+  /** Part type from config.json: engine, fuel_tank, body, windows, tire. */
+  type: string;
   label: string;
   category: string;
   item: string;
@@ -16,6 +24,7 @@ export interface PartDiagnosis {
   health: number;
   status: PartStatus;
   detail: string;
+  metrics: PartMetric[];
   needsRepair: boolean;
 }
 
@@ -42,12 +51,23 @@ export interface HistoryEntry {
   repairedAt: string;
 }
 
+/** A note a mechanic pinned on the car; it shows at the same spot to the next mechanic. */
+export interface VehicleNote {
+  id: number;
+  text: string;
+  author: string;
+  createdAt: string;
+}
+
 export interface SessionData {
+  /** Length of the 3D scan that opens the inspection, in milliseconds. */
+  scan?: number;
   vehicle: VehicleInfo;
   condition: Condition;
   parts: PartDiagnosis[];
   stock: StockEntry[];
   history: HistoryEntry[];
+  notes: VehicleNote[];
 }
 
 export type SessionUpdate = Pick<SessionData, 'condition' | 'parts' | 'stock' | 'history'>;
@@ -64,6 +84,8 @@ export interface LugNutsConfig {
   nuts: number;
   timeLimit: number;
   maxMistakes: number;
+  /** Tires: the nuts are loosened to take the old wheel off, then tightened on the new one. */
+  mode?: 'loosen' | 'tighten';
 }
 
 export interface WireConnectConfig {
@@ -95,12 +117,21 @@ export interface MinigameRequest {
   minigame: MinigameConfig;
 }
 
-/** Where a part's marker shows on screen (0–1), projected by the client from the real car. */
+/**
+ * A spot on the real car, projected on screen (0–1) by the client: a part, or one broken window,
+ * damaged door or dent of a part.
+ */
 export interface PartMarker {
   id: string;
+  partId: string | null;
+  /** The window, door or dent; null for the part itself. */
+  label: string | null;
+  dent: 'light' | 'heavy' | null;
+  /** Id of the pinned note shown at this spot; partId is then null. */
+  note: number | null;
   x: number;
   y: number;
-  /** False when the part is on the far side of the car. */
+  /** False when the spot is on the far side of the car. */
   front: boolean;
 }
 

@@ -1,18 +1,32 @@
-// Scripted camera of the inspection menu: shows the real car, turns around it, moves onto one part,
-// and projects each part's marker on the screen for the NUI.
+// Scripted camera of the inspection menu: shows the real car, turns around it, zooms, moves onto one
+// spot, and projects every spot (parts, broken windows, damaged doors, dents, pinned notes) on the
+// screen for the NUI.
 
-import { FOV, facesCamera, focusPose, overviewPose, partAnchor } from './view.js';
+import { readVehicleState } from './vehicle.js';
+import { FOV, dentSpots, facesCamera, focusPose, overviewPose, partSpots } from './view.js';
 
 const ENTER_MS = 800;
 const MOVE_MS = 700;
 const LEAVE_MS = 500;
 const DEFAULT_YAW = -40;
+const ZOOM = { min: 0.6, max: 1.5 };
+const LIFT = { min: -1.0, max: 3.0 };
+const XRAY_ALPHA = 110;
+// A note floats a little above the spot it was pinned on, so both markers stay readable.
+const NOTE_RAISE = 0.18;
 
-/** @type {{ vehicle: number, dims: any, anchors: Map<string, any>, aspect: number, cam: number, yaw: number, focused: boolean, last: string } | null} */
+/**
+ * @type {{
+ *   vehicle: number, dims: any, spots: Map<string, any>, aspect: number, cam: number,
+ *   yaw: number, zoom: number, lift: number, focused: any, xray: boolean,
+ *   sweep: { start: number, duration: number } | null, last: string,
+ * } | null}
+ */
 let view = null;
 
 const toWorld = (vehicle, point) => GetOffsetFromEntityInWorldCoords(vehicle, point.x, point.y, point.z);
 const round = (value) => Math.round(value * 10000) / 10000;
+const clamp = (value, { min, max }) => Math.min(max, Math.max(min, value));
 
 function readDims(vehicle) {
   const [min, max] = GetModelDimensions(GetEntityModel(vehicle));
@@ -26,6 +40,24 @@ function bonePosition(vehicle, bone) {
   const [localX, localY, localZ] = GetOffsetFromEntityGivenWorldCoords(vehicle, x, y, z);
   return { x: localX, y: localY, z: localZ };
 }
+
+function dentDepth(vehicle, point) {
+  const [x, y, z] = GetVehicleDeformationAtPos(vehicle, point.x, point.y, point.z);
+  return Math.hypot(x, y, z);
+}
+
+function readSpots(vehicle, dims, parts, notes) {
+  const state = readVehicleState(vehicle);
+  const locate = (bone) => bonePosition(vehicle, bone);
+  const spots = parts.flatMap((part) => partSpots(part, dims, locate, state));
+  const body = parts.find((part) => part.type === 'body');
+  if (body) spots.push(...dentSpots(body.id, dims, (point) => dentDepth(vehicle, point)));
+  spots.push(...noteSpots(notes));
+  return new Map(spots.map((spot) => [spot.id, spot]));
+}
+
+const noteSpots = (notes) =>
+  notes.map((note) => ({ id: `note:${note.id}`, partId: null, label: null, note: note.id, anchor: { x: note.x, y: note.y, z: note.z } }));
 
 function place(cam, vehicle, pose) {
   const [x, y, z] = toWorld(vehicle, pose.camera);
@@ -41,6 +73,14 @@ function destroyLater(cam, ms) {
   }, ms + 100);
 }
 
+const overview = () => overviewPose(view.dims, view.yaw, view.aspect, view.zoom, view.lift);
+
+function currentPose() {
+  if (!view.focused) return overview();
+  const { spot, part } = view.focused;
+  return focusPose(part, spot.anchor, view.dims, view.aspect, view.zoom);
+}
+
 // Smooth move: a new camera, interpolated from the current one.
 function moveTo(pose) {
   const next = CreateCam('DEFAULT_SCRIPTED_CAMERA', false);
@@ -50,63 +90,132 @@ function moveTo(pose) {
   view.cam = next;
 }
 
+const usable = () => view !== null && view.sweep === null && DoesEntityExist(view.vehicle);
+
 export const viewActive = () => view !== null;
 
-export function startView(vehicle, parts) {
+/**
+ * Starts the view on the whole car. With `sweepMs`, the camera first makes a full turn around the car
+ * (the 3D diagnostic scan), during which the mechanic cannot move it.
+ */
+export function startView(vehicle, parts, notes, sweepMs = 0) {
   if (view) stopView(true);
   const dims = readDims(vehicle);
-  const anchors = new Map(parts.map((part) => [part.id, partAnchor(part, dims, (bone) => bonePosition(vehicle, bone))]));
-  const aspect = GetAspectRatio(false);
   const cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', false);
-  view = { vehicle, dims, anchors, aspect, cam, yaw: DEFAULT_YAW, focused: false, last: '' };
-  place(cam, vehicle, overviewPose(dims, DEFAULT_YAW, aspect));
+  view = {
+    vehicle,
+    dims,
+    spots: readSpots(vehicle, dims, parts, notes),
+    aspect: GetAspectRatio(false),
+    cam,
+    yaw: DEFAULT_YAW,
+    zoom: 1,
+    lift: 0,
+    focused: null,
+    xray: false,
+    sweep: sweepMs > 0 ? { start: GetGameTimer(), duration: sweepMs } : null,
+    last: '',
+  };
+  place(cam, vehicle, overview());
   SetCamActive(cam, true);
   RenderScriptCams(true, true, ENTER_MS, true, true);
 }
 
 export function stopView(instant = false) {
   if (!view) return;
-  const { cam } = view;
+  const { cam, vehicle, xray } = view;
   view = null;
+  if (xray && DoesEntityExist(vehicle)) ResetEntityAlpha(vehicle);
   RenderScriptCams(false, !instant, instant ? 0 : LEAVE_MS, true, true);
   if (instant) DestroyCam(cam, false);
   else destroyLater(cam, LEAVE_MS);
 }
 
-/** Moves onto a part, or back to the whole car when `part` is missing. */
-export function focusPart(part) {
-  if (!view || !DoesEntityExist(view.vehicle)) return;
-  const anchor = part ? view.anchors.get(part.id) : null;
-  view.focused = Boolean(anchor);
-  moveTo(anchor ? focusPose(part, anchor, view.dims, view.aspect) : overviewPose(view.dims, view.yaw, view.aspect));
+/** Replaces the pinned notes shown on the car, after one was added or deleted. */
+export function setNotes(notes) {
+  if (!view) return;
+  for (const [id, spot] of view.spots) if (spot.note) view.spots.delete(id);
+  for (const spot of noteSpots(notes)) view.spots.set(spot.id, spot);
+  view.last = '';
 }
 
-/** Turns around the car. From a part, goes back to the whole car first. */
-export function rotateView(degrees) {
-  if (!view || !DoesEntityExist(view.vehicle)) return;
-  view.yaw = (view.yaw + degrees) % 360;
-  const pose = overviewPose(view.dims, view.yaw, view.aspect);
+/** Where a new note goes when pinned on a spot: just above it, in the vehicle's local space. */
+export function noteAnchor(spotId) {
+  const spot = view?.spots.get(spotId);
+  return spot ? { ...spot.anchor, z: spot.anchor.z + NOTE_RAISE } : null;
+}
+
+/** Moves onto a spot (or the first spot of a part), or back to the whole car when `id` is null. */
+export function focusSpot(id, partsById) {
+  if (!usable()) return;
+  const spot = id ? (view.spots.get(id) ?? [...view.spots.values()].find((candidate) => candidate.partId === id)) : null;
+  view.focused = spot ? { spot, part: partsById.get(spot.partId) } : null;
+  moveTo(currentPose());
+}
+
+/** Turns around the car and raises or lowers the camera. From a spot, goes back to the whole car. */
+export function orbitView(yawDegrees, liftMeters) {
+  if (!usable()) return;
+  view.yaw = (view.yaw + yawDegrees) % 360;
+  view.lift = clamp(view.lift + liftMeters, LIFT);
   if (view.focused) {
-    view.focused = false;
-    moveTo(pose);
+    view.focused = null;
+    moveTo(overview());
   } else {
-    place(view.cam, view.vehicle, pose);
+    place(view.cam, view.vehicle, overview());
   }
 }
 
-/** Every frame while the view is on: the markers' screen positions (0–1), or null if nothing moved. */
+/** Zooms in (factor below 1) or out, on the whole car or on the spot in view. */
+export function zoomView(factor) {
+  if (!usable()) return;
+  view.zoom = clamp(view.zoom * factor, ZOOM);
+  place(view.cam, view.vehicle, currentPose());
+}
+
+/** See-through bodywork, for the mechanic only, so the markers behind the car stay visible. */
+export function setXray(enabled) {
+  if (!usable()) return;
+  view.xray = enabled;
+  if (enabled) SetEntityAlpha(view.vehicle, XRAY_ALPHA, false);
+  else ResetEntityAlpha(view.vehicle);
+  view.last = '';
+}
+
+/** Every frame while the view is on: the spots' screen positions (0–1), or null if nothing moved. */
 export function projectMarkers() {
   if (!view || !DoesEntityExist(view.vehicle)) return null;
   HideHudAndRadarThisFrame();
+
+  if (view.sweep) {
+    const progress = Math.min(1, (GetGameTimer() - view.sweep.start) / view.sweep.duration);
+    view.yaw = DEFAULT_YAW - 360 * (1 - progress);
+    place(view.cam, view.vehicle, overview());
+    if (progress === 1) {
+      view.yaw = DEFAULT_YAW;
+      view.sweep = null;
+    }
+  }
+
   const [camX, camY, camZ] = GetFinalRenderedCamCoord();
   const [x, y, z] = GetOffsetFromEntityGivenWorldCoords(view.vehicle, camX, camY, camZ);
   const camera = { x, y, z };
 
   const markers = [];
-  for (const [id, anchor] of view.anchors) {
-    const [worldX, worldY, worldZ] = toWorld(view.vehicle, anchor);
+  for (const spot of view.spots.values()) {
+    const [worldX, worldY, worldZ] = toWorld(view.vehicle, spot.anchor);
     const [onScreen, screenX, screenY] = GetScreenCoordFromWorldCoord(worldX, worldY, worldZ);
-    if (onScreen) markers.push({ id, x: round(screenX), y: round(screenY), front: facesCamera(anchor, camera, view.dims) });
+    if (!onScreen) continue;
+    markers.push({
+      id: spot.id,
+      partId: spot.partId,
+      label: spot.label,
+      dent: spot.dent ?? null,
+      note: spot.note ?? null,
+      x: round(screenX),
+      y: round(screenY),
+      front: view.xray || facesCamera(spot.anchor, camera, view.dims),
+    });
   }
 
   const key = JSON.stringify(markers);

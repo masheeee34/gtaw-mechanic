@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, CircleCheck, LoaderCircle } from 'lucide-react';
 import type { ScanData } from '../types';
 
-/** Shown while the mechanic scans the vehicle with the tablet, before the diagnosis opens. */
+/** Progress of the 3D scan that opens the inspection, while the camera turns around the car. */
 export function ScanOverlay({ duration, steps }: ScanData) {
   const [progress, setProgress] = useState(0);
 
@@ -19,7 +19,7 @@ export function ScanOverlay({ duration, steps }: ScanData) {
   const checked = Math.floor(progress * steps.length);
 
   return (
-    <div className="repair-screen">
+    <div className="scan-hud">
       <div className="repair-panel" role="dialog" aria-label="Diagnostic en cours">
         <header className="repair-header">
           <Activity size={15} strokeWidth={2.5} />

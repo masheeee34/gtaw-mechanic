@@ -6,11 +6,12 @@
 // the garage rack → carry it to the car → [E] at the part → work animation + mini-game → installed.
 
 import { partPositions, startWork, stopWork } from './animation.js';
-import { focusPart, projectMarkers, rotateView, startView, stopView, viewActive } from './camera.js';
+import { focusSpot, noteAnchor, orbitView, projectMarkers, setNotes, setXray, startView, stopView, viewActive, zoomView } from './camera.js';
 import { parseConfig } from './config.js';
 import { diagnose, summarize } from './diagnostics.js';
 import { emoteText } from './emotes.js';
-import { Key, Stage, advance, objective, startJob } from './job.js';
+import { DIRT_STATE, addDirt, dirtLevel, showDirt, washHands } from './grime.js';
+import { Key, RUSHED_BELOW, Stage, advance, nutsMode, objective, repairLevel, startJob } from './job.js';
 import { errorMessage } from './messages.js';
 import { onNui, sendNui } from './nui.js';
 import {
@@ -23,7 +24,7 @@ import {
 } from './props.js';
 import { createRpc } from './rpc.js';
 import { applyRepair, delay, findNearestVehicle, readVehicleState, requestControl, vehicleDisplayName } from './vehicle.js';
-import { WHEEL_OFF_STATE, showWheelOff } from './wheels.js';
+import { WHEEL_OFF_STATE, fitNewWheel, jackDown, jackUp, removeWheel, showWheelOff } from './wheels.js';
 import { Control, drawObjective, drawText3d, groundZ, pressed } from './world.js';
 import { distance, findGarage, flatDistance } from './zones.js';
 
@@ -33,7 +34,7 @@ const PROMPT_DISTANCE = 3.5;
 const WATCH_INTERVAL_MS = 1000;
 const LEAVE_MARGIN = 4.0;
 const JOB_LEAVE_DISTANCE = 30.0;
-const REACH = { rack: 1.5, part: 1.1 };
+const REACH = { rack: 1.5, part: 1.1, wash: 1.5 };
 const TURN_MS = 800;
 const AME_RANGE = 20.0;
 const AME_MS = 7000;
@@ -47,12 +48,15 @@ const rpc = createRpc({ emitNet, onNet, prefix: RESOURCE });
 
 /**
  * The inspection in progress: the menu is open, or a repair job runs in the world.
- * @type {{ vehicle: number, netId: number, garage: any, plate: string, job: any, prop: number, acting: boolean, watcher: any } | null}
+ * @type {{ vehicle: number, netId: number, garage: any, plate: string, notes: any[], job: any, prop: number, acting: boolean, watcher: any, wheelSpot?: any } | null}
  */
 let session = null;
 let isMechanic = false;
 let opening = false;
 let promptVehicle = 0;
+/** The garage whose workbench the dirty mechanic stands at, to wash their hands. */
+let washGarage = null;
+let washing = false;
 let tick = null;
 let shownPrompt = '[]';
 /** /ame lines shown above heads, by server id. */
@@ -97,7 +101,7 @@ function setPrompt(lines) {
 // --- Per-frame work only runs while there is something to show: the prompt, or a job. ---
 
 function updateTick() {
-  const needed = promptVehicle !== 0 || Boolean(session?.job) || viewActive() || emotes.size > 0;
+  const needed = promptVehicle !== 0 || washGarage !== null || Boolean(session?.job) || viewActive() || emotes.size > 0;
   if (needed && tick === null) tick = setTick(frame);
   if (!needed && tick !== null) {
     clearTick(tick);
@@ -114,19 +118,41 @@ function frame() {
     if (markers) sendNui('markers', { markers });
     return setPrompt([]);
   }
-  if (promptVehicle === 0) return setPrompt([]);
-  setPrompt([{ key: Key.INTERACT, text: 'Inspecter le véhicule' }]);
-  if (pressed(Control.INTERACT)) void openInspection(promptVehicle);
+  if (promptVehicle !== 0) {
+    setPrompt([{ key: Key.INTERACT, text: 'Inspecter le véhicule' }]);
+    if (pressed(Control.INTERACT)) void openInspection(promptVehicle);
+    return;
+  }
+  if (washGarage === null) return setPrompt([]);
+  setPrompt([{ key: Key.INTERACT, text: 'Se laver les mains' }]);
+  if (pressed(Control.INTERACT)) void wash();
+}
+
+async function wash() {
+  washing = true;
+  washGarage = null;
+  updateTick();
+  try {
+    await washHands();
+  } finally {
+    washing = false;
+  }
 }
 
 // Twice a second, not every frame: is a mechanic on foot next to a car, inside a garage?
 function refreshPrompt() {
   promptVehicle = 0;
-  if (isMechanic && !session && !opening) {
+  washGarage = null;
+  if (isMechanic && !session && !opening && !washing) {
     const ped = PlayerPedId();
-    if (!IsPedInAnyVehicle(ped, false) && findGarage(GetEntityCoords(ped, true), config.garages)) {
+    const position = GetEntityCoords(ped, true);
+    const garage = IsPedInAnyVehicle(ped, false) ? null : findGarage(position, config.garages);
+    if (garage) {
       const vehicle = findNearestVehicle(PROMPT_DISTANCE);
       if (vehicle !== 0 && NetworkGetEntityIsNetworked(vehicle)) promptVehicle = vehicle;
+      // A dirty mechanic at the workbench (the parts rack) can wash.
+      const bench = garage.rack ?? garage.center;
+      if (dirtLevel() > 0 && flatDistance(position, bench) <= REACH.wash) washGarage = garage;
     }
   }
   updateTick();
@@ -137,17 +163,12 @@ async function checkAccess() {
   isMechanic = Boolean(response.ok && response.data.allowed);
 }
 
-// --- Inspection: diagnostic animation, then the menu. ---
+// --- Inspection: the mechanic takes the tablet, the camera scans around the car, then the menu. ---
 
-async function playDiagnostic(vehicle) {
-  const ped = PlayerPedId();
-  TaskTurnPedToFaceEntity(ped, vehicle, TURN_MS);
+async function takeTablet(vehicle) {
+  TaskTurnPedToFaceEntity(PlayerPedId(), vehicle, TURN_MS);
   await delay(TURN_MS);
-  const tablet = await startTablet();
-  const steps = diagnose(readVehicleState(vehicle), config.parts, config.thresholds).map((part) => part.label);
-  sendNui('scan', { duration: scanDuration, steps });
-  await delay(scanDuration);
-  stopTablet(tablet);
+  return startTablet();
 }
 
 async function openInspection(target = 0) {
@@ -169,24 +190,28 @@ async function openInspection(target = 0) {
   ame('inspect');
   try {
     const netId = NetworkGetNetworkIdFromEntity(vehicle);
-    // The diagnostic animation covers the server round trip.
-    const [response] = await Promise.all([rpc.request('openSession', garage.id, netId), playDiagnostic(vehicle)]);
+    // Taking the tablet out covers the server round trip.
+    const [response, tablet] = await Promise.all([rpc.request('openSession', garage.id, netId), takeTablet(vehicle)]);
     if (!response.ok) {
-      sendNui('close');
+      stopTablet(tablet);
       return notifyError(response.error);
     }
 
-    const { plate, stock, history } = response.data;
-    session = { vehicle, netId, garage, plate, job: null, prop: 0, acting: false, watcher: setInterval(watchSession, WATCH_INTERVAL_MS) };
+    const { plate, stock, history, notes } = response.data;
+    session = { vehicle, netId, garage, plate, notes, job: null, prop: 0, acting: false, watcher: setInterval(watchSession, WATCH_INTERVAL_MS) };
     sendNui('open', {
       vehicle: { model: vehicleDisplayName(vehicle), plate, garageId: garage.id, garageLabel: garage.label },
       ...inspect(vehicle),
       stock: withItemLabels(stock),
       history: withPartLabels(history),
+      notes,
+      scan: scanDuration,
     });
     SetNuiFocus(true, true);
-    startView(vehicle, config.parts);
+    // The 3D scan: the camera turns around the car while the NUI reveals each spot, then the menu.
+    startView(vehicle, config.parts, notes, scanDuration);
     updateTick();
+    setTimeout(() => stopTablet(tablet), scanDuration);
   } finally {
     opening = false;
   }
@@ -223,7 +248,7 @@ function reopenMenu(stock) {
   if (stock) sendNui('update', { stock: withItemLabels(stock) });
   sendNui('show');
   SetNuiFocus(true, true);
-  startView(session.vehicle, config.parts);
+  startView(session.vehicle, config.parts, session.notes);
   updateTick();
 }
 
@@ -231,13 +256,20 @@ function reopenMenu(stock) {
 
 function jobTarget(current) {
   if (current.job.stage === Stage.FETCH) return current.garage.rack ?? current.garage.center;
-  return partPositions(current.vehicle, partsById.get(current.job.partId)).stand;
+  return workSpot(current, partsById.get(current.job.partId)).stand;
+}
+
+// Where the mechanic works on a part. A wheel taken off is pushed far away (wheels.js), and its bone
+// with it, so a tire change keeps the spot read before the wheel came off.
+function workSpot(current, part) {
+  if (part.type === 'tire' && current.wheelSpot) return current.wheelSpot;
+  return partPositions(current.vehicle, part);
 }
 
 function jobFrame() {
   const current = session;
   const { job } = current;
-  if (job.holdingPart && job.stage !== Stage.WORKING) restrictCarryingControls();
+  if (job.stage === Stage.INSTALL) restrictCarryingControls();
   if (job.stage === Stage.WORKING || current.acting) return [];
 
   const part = partsById.get(job.partId);
@@ -247,7 +279,11 @@ function jobFrame() {
 
   const near = flatDistance(GetEntityCoords(PlayerPedId(), true), target) <= REACH[goal.target];
   if (pressed(Control.CANCEL)) void abandonJob();
-  else if (near && pressed(Control.INTERACT)) void (job.stage === Stage.FETCH ? takePart() : installPart());
+  else if (near && pressed(Control.INTERACT)) {
+    if (job.stage === Stage.FETCH) void takePart();
+    else if (job.stage === Stage.REMOUNT) void remountWheel();
+    else void installPart();
+  }
   return near ? goal.near : goal.far;
 }
 
@@ -291,12 +327,42 @@ async function installPart() {
   current.prop = 0;
   current.job = advance(current.job, 'installStarted');
   ame('install', part.id);
-  await startWork(current.vehicle, part);
+  if (part.type === 'tire') {
+    current.wheelSpot = partPositions(current.vehicle, part);
+    await jackUp(current.vehicle, current.wheelSpot);
+  }
+  await startWork(current.vehicle, part, workSpot(current, part));
   if (session !== current) return;
 
   current.acting = false;
-  sendNui('minigame', { partId: part.id, minigame: part.minigame });
+  sendNui('minigame', { partId: part.id, minigame: minigameFor(current.job, part) });
   SetNuiFocus(true, true);
+}
+
+// Tires: the old wheel is off; the new one, waiting on the floor, goes on and the nuts are tightened.
+async function remountWheel() {
+  const current = session;
+  const part = partsById.get(current.job.partId);
+  current.acting = true;
+  if (!(await requestControl(current.vehicle))) {
+    current.acting = false;
+    return notifyError('no_control');
+  }
+
+  fitNewWheel(current.vehicle);
+  current.job = advance(current.job, 'remountStarted');
+  ame('refit', part.id);
+  await startWork(current.vehicle, part, workSpot(current, part));
+  if (session !== current) return;
+
+  current.acting = false;
+  sendNui('minigame', { partId: part.id, minigame: minigameFor(current.job, part) });
+  SetNuiFocus(true, true);
+}
+
+/** The part's mini-game; the tire one loosens the nuts first, then tightens them on the new wheel. */
+function minigameFor(job, part) {
+  return part.type === 'tire' ? { ...part.minigame, mode: nutsMode(job) } : part.minigame;
 }
 
 /** Stops the job's props and animations, and puts the part back on the shelf when asked to. */
@@ -306,7 +372,12 @@ async function endJob(current, { putBack }) {
   current.job = null;
   stopCarrying(current.prop);
   current.prop = 0;
-  if (job.stage === Stage.WORKING) stopWork(current.vehicle, partsById.get(job.partId));
+  const part = partsById.get(job.partId);
+  if (job.stage === Stage.WORKING) stopWork(current.vehicle, part);
+  if (part.type === 'tire') {
+    jackDown(current.vehicle);
+    current.wheelSpot = null;
+  }
   if (!putBack || !job.holdingPart) return null;
 
   const response = await rpc.request('returnPart');
@@ -349,7 +420,7 @@ onNui('repair:start', ({ partId }) => {
 });
 
 // After the mini-game. `show` tells the page whether the menu comes back or the job goes on in the world.
-onNui('repair:finish', async ({ partId, success, cancelled }) => {
+onNui('repair:finish', async ({ partId, success, cancelled, quality }) => {
   const current = session;
   if (!current?.job || current.job.partId !== partId || current.job.stage !== Stage.WORKING) return fail('no_session');
   const part = partsById.get(partId);
@@ -358,7 +429,7 @@ onNui('repair:finish', async ({ partId, success, cancelled }) => {
     const stock = await endJob(current, { putBack: true });
     if (stock) sendNui('update', { stock: withItemLabels(stock) });
     SetNuiFocus(true, true);
-    startView(current.vehicle, config.parts);
+    startView(current.vehicle, config.parts, current.notes);
     updateTick();
     return { ...fail('cancelled'), show: true };
   }
@@ -366,7 +437,14 @@ onNui('repair:finish', async ({ partId, success, cancelled }) => {
   stopWork(current.vehicle, part);
   const retry = async (error) => {
     current.job = advance(current.job, 'minigameFailed');
-    current.prop = await startCarrying(config.items[part.item]);
+    // Back to the car with the part in hand, or, wheel off, back to fitting the new one.
+    if (current.job.stage === Stage.INSTALL) {
+      if (part.type === 'tire') {
+        jackDown(current.vehicle);
+        current.wheelSpot = null;
+      }
+      current.prop = await startCarrying(config.items[part.item]);
+    }
     SetNuiFocus(false, false);
     notifyError(error);
     return { ...fail(error), show: false };
@@ -374,6 +452,16 @@ onNui('repair:finish', async ({ partId, success, cancelled }) => {
   if (!success) {
     ame('failed', partId);
     return retry('minigame_failed');
+  }
+
+  if (part.type === 'tire' && !current.job.wheelOff) {
+    // Nuts loosened: the old wheel comes off; the new one has to go on, in a second mini-game.
+    await removeWheel(current.vehicle, part.wheel, workSpot(current, part).stand);
+    current.job = advance(current.job, 'wheelRemoved');
+    SetNuiFocus(false, false);
+    ame('remove', partId);
+    notify('Roue démontée : posez la roue neuve.');
+    return ok(null);
   }
   if (!(await requestControl(current.vehicle))) return retry('no_control');
 
@@ -384,10 +472,16 @@ onNui('repair:finish', async ({ partId, success, cancelled }) => {
   if (!response.ok) return retry(response.error);
 
   current.job = null;
-  applyRepair(current.vehicle, part);
-  ame('done', partId);
+  const score = Number(quality);
+  applyRepair(current.vehicle, part, repairLevel(score));
+  addDirt();
+  if (part.type === 'tire') {
+    jackDown(current.vehicle);
+    current.wheelSpot = null;
+  }
+  ame(score < RUSHED_BELOW ? 'rushed' : 'done', partId);
   SetNuiFocus(true, true);
-  startView(current.vehicle, config.parts);
+  startView(current.vehicle, config.parts, current.notes);
   updateTick();
   return ok({
     ...inspect(current.vehicle),
@@ -396,16 +490,52 @@ onNui('repair:finish', async ({ partId, success, cancelled }) => {
   });
 });
 
-// The 3D view: move onto a part (or back to the whole car), turn around the car.
-onNui('view:focus', ({ partId }) => {
-  focusPart(partId ? partsById.get(partId) : null);
+// The 3D view: move onto a spot or a part (or back to the whole car), turn around, zoom, see through.
+const finite = (value, limit) => (Number.isFinite(Number(value)) ? Math.max(-limit, Math.min(limit, Number(value))) : 0);
+
+onNui('view:focus', ({ id }) => {
+  focusSpot(typeof id === 'string' ? id : null, partsById);
   return ok();
 });
 
-onNui('view:rotate', ({ delta }) => {
-  const degrees = Number(delta);
-  if (Number.isFinite(degrees)) rotateView(Math.max(-90, Math.min(90, degrees)));
+onNui('view:orbit', ({ yaw, lift }) => {
+  orbitView(finite(yaw, 90), finite(lift, 1));
   return ok();
+});
+
+onNui('view:zoom', ({ factor }) => {
+  const value = Number(factor);
+  if (Number.isFinite(value) && value > 0) zoomView(value);
+  return ok();
+});
+
+onNui('view:xray', ({ enabled }) => {
+  setXray(Boolean(enabled));
+  return ok();
+});
+
+// Notes pinned on a spot of the car, kept per plate by the server. The server checks the mechanic is
+// at the vehicle and reads the plate itself; the client only says where and what.
+async function changeNotes(request) {
+  const current = session;
+  if (!current) return fail('no_session');
+  const response = await request(current);
+  if (session !== current) return fail('no_session');
+  if (!response.ok) return fail(response.error);
+  current.notes = response.data.notes;
+  setNotes(current.notes);
+  return ok(current.notes);
+}
+
+onNui('note:add', ({ spotId, text }) => {
+  const anchor = noteAnchor(spotId);
+  if (!anchor || typeof text !== 'string') return fail('invalid_note');
+  return changeNotes((current) => rpc.request('addNote', current.garage.id, current.netId, anchor.x, anchor.y, anchor.z, text));
+});
+
+onNui('note:delete', ({ id }) => {
+  if (!Number.isInteger(id)) return fail('note_not_found');
+  return changeNotes((current) => rpc.request('deleteNote', current.garage.id, current.netId, id));
 });
 
 // --- /ame: the mechanic's actions, written above their head for the players around ---
@@ -442,6 +572,15 @@ AddStateBagChangeHandler(WHEEL_OFF_STATE, '', (bagName, _key, value) => {
   if (vehicle !== 0) showWheelOff(vehicle, value ?? null);
 });
 
+// Grease on a mechanic, drawn on every client that has them around (grime.js).
+AddStateBagChangeHandler(DIRT_STATE, '', (bagName, _key, value) => {
+  if (!bagName.startsWith('player:')) return;
+  const player = GetPlayerFromServerId(Number(bagName.slice('player:'.length)));
+  if (player === -1) return;
+  const ped = GetPlayerPed(player);
+  if (DoesEntityExist(ped)) showDirt(ped, Number(value) || 0);
+});
+
 // --- Entry points ---
 
 RegisterCommand('mecano', () => void openInspection(), false);
@@ -455,6 +594,7 @@ on('onResourceStop', (resource) => {
   if (resource !== RESOURCE) return;
   stopView(true);
   if (!session) return;
+  jackDown(session.vehicle);
   stopCarrying(session.prop);
   stopWork(session.vehicle, session.job ? partsById.get(session.job.partId) : null);
   ClearPedTasks(PlayerPedId());

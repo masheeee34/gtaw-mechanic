@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createZone, isHit, needlePosition, roundSettings } from './skillCheckRules';
+import type { MinigameComplete } from './quality';
+import { createZone, isHit, needlePosition, precision, roundSettings } from './skillCheckRules';
 
 const FEEDBACK_MS = 400;
 const HIT_FLASH_MS = 220;
@@ -8,7 +9,7 @@ interface SkillCheckProps {
   rounds: number;
   zoneSize: number;
   speed: number;
-  onComplete: (success: boolean) => void;
+  onComplete: MinigameComplete;
   random?: () => number;
 }
 
@@ -20,6 +21,7 @@ export function SkillCheck({ rounds, zoneSize, speed, onComplete, random = Math.
   const needle = useRef<HTMLDivElement>(null);
   const position = useRef(0);
   const completion = useRef<number | undefined>(undefined);
+  const precisions = useRef<number[]>([]);
   const { speed: roundSpeed } = roundSettings({ zoneSize, speed }, round);
 
   // The needle moves every frame, so it is positioned through a ref instead of React state.
@@ -46,10 +48,12 @@ export function SkillCheck({ rounds, zoneSize, speed, onComplete, random = Math.
     if (finished) return;
     const hit = isHit(position.current, zone);
     setResult(hit ? 'hit' : 'miss');
+    precisions.current.push(precision(position.current, zone));
 
     if (!hit || round + 1 >= rounds) {
       setFinished(true);
-      completion.current = window.setTimeout(() => onComplete(hit), FEEDBACK_MS);
+      const quality = hit ? precisions.current.reduce((sum, value) => sum + value, 0) / precisions.current.length : 0;
+      completion.current = window.setTimeout(() => onComplete(hit, quality), FEEDBACK_MS);
       return;
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPressureState, isInZone, tick, type PressureSettings } from './pressureGaugeRules';
+import type { MinigameComplete } from './quality';
 
 const FEEDBACK_MS = 400;
 const MAX_FRAME_SECONDS = 0.1;
@@ -24,7 +25,7 @@ function arc(from: number, to: number): string {
 }
 
 interface PressureGaugeProps extends PressureSettings {
-  onComplete: (success: boolean) => void;
+  onComplete: MinigameComplete;
 }
 
 export function PressureGauge({ duration, decay, boost, minZone, maxZone, onComplete }: PressureGaugeProps) {
@@ -41,16 +42,23 @@ export function PressureGauge({ duration, decay, boost, minZone, maxZone, onComp
     const settings = { duration, decay, boost, minZone, maxZone };
     let current = createPressureState(settings);
     let last: number | null = null;
+    let elapsed = 0;
     let completion: number | undefined;
     let frame = requestAnimationFrame(function loop(now) {
       const seconds = last === null ? 0 : Math.min((now - last) / 1000, MAX_FRAME_SECONDS);
       last = now;
+      elapsed += seconds;
       current = tick(current, seconds, settings, pumped.current);
       pumped.current = false;
       setState(current);
 
       if (current.outcome === 'playing') frame = requestAnimationFrame(loop);
-      else completion = window.setTimeout(() => onCompleteRef.current(current.outcome === 'won'), FEEDBACK_MS);
+      else {
+        // Quality: the share of the time spent in the green zone.
+        const won = current.outcome === 'won';
+        const quality = won ? Math.min(1, duration / Math.max(elapsed, duration)) : 0;
+        completion = window.setTimeout(() => onCompleteRef.current(won, quality), FEEDBACK_MS);
+      }
     });
     return () => {
       cancelAnimationFrame(frame);

@@ -10,7 +10,10 @@ describe('emoteText', () => {
     expect(emoteText('inspect', undefined, items)).toMatch(/tablette/);
     expect(emoteText('take', tire(0), items)).toBe("attrape un pneu neuf sur l'étagère.");
     expect(emoteText('install', tire(1), items)).toMatch(/roue avant droite/);
+    expect(emoteText('remove', tire(0), items)).toBe('retire la roue avant gauche et la pose au sol.');
+    expect(emoteText('refit', tire(0), items)).toMatch(/roue neuve/);
     expect(emoteText('done', { type: 'engine', label: 'Moteur' }, items)).toBe('termine de réparer le moteur.');
+    expect(emoteText('rushed', { type: 'engine', label: 'Moteur' }, items)).toBe('répare le moteur à la va-vite.');
   });
 
   it('ignores unknown actions and missing parts', () => {

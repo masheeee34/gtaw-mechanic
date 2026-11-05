@@ -104,3 +104,23 @@ describe('summarize', () => {
     expect(summarize([], thresholds)).toEqual({ health: 100, status: 'good' });
   });
 });
+
+describe('readings', () => {
+  it('shows the engine and tank readings the game gives', () => {
+    const state = healthyState({ engineHealth: 420.6, engineTemperature: 91.2, oilLevel: 4.25, fuelLevel: 32 });
+    const diagnoses = diagnose(state, parts, thresholds);
+
+    expect(byId(diagnoses, 'engine').metrics).toEqual([
+      { label: 'État', value: '421 / 1000' },
+      { label: 'Température', value: '91 °C' },
+      { label: 'Huile', value: '4,3 L' },
+    ]);
+    expect(byId(diagnoses, 'fuel_tank').metrics).toContainEqual({ label: 'Carburant', value: '32,0 L' });
+  });
+
+  it('leaves out a reading the game does not give', () => {
+    const engine = byId(diagnose(healthyState(), parts, thresholds), 'engine');
+
+    expect(engine.metrics.map((metric) => metric.label)).toEqual(['État']);
+  });
+});

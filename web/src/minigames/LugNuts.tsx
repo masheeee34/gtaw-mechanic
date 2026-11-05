@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createLugNuts, tighten } from './lugNutRules';
+import { scoreRun, type MinigameComplete } from './quality';
 
 const FEEDBACK_MS = 450;
 const WRONG_FLASH_MS = 320;
 const TICK_MS = 100;
 const CENTER = 120;
 const NUT_ORBIT = 52;
-const TARGET_TORQUE = 120; // Nm de couple de serrage standard automobile
+const TARGET_TORQUE = 120; // Nm, a typical wheel nut torque
 
 interface LugNutsProps {
   nuts: number;
   timeLimit: number;
   maxMistakes: number;
-  onComplete: (success: boolean) => void;
+  mode?: 'loosen' | 'tighten';
+  onComplete: MinigameComplete;
 }
 
-export function LugNuts({ nuts, timeLimit, maxMistakes, onComplete }: LugNutsProps) {
+export function LugNuts({ nuts, timeLimit, maxMistakes, mode = 'tighten', onComplete }: LugNutsProps) {
+  const loosening = mode === 'loosen';
   const [state, setState] = useState(() => createLugNuts(nuts));
   const [wrongNut, setWrongNut] = useState<number | null>(null);
   const [remainingMs, setRemainingMs] = useState(timeLimit * 1000);
@@ -23,10 +26,10 @@ export function LugNuts({ nuts, timeLimit, maxMistakes, onComplete }: LugNutsPro
   const completion = useRef<number | undefined>(undefined);
 
   const finish = useCallback(
-    (success: boolean) => {
+    (success: boolean, quality = 0) => {
       if (finished.current) return;
       finished.current = true;
-      completion.current = window.setTimeout(() => onComplete(success), FEEDBACK_MS);
+      completion.current = window.setTimeout(() => onComplete(success, quality), FEEDBACK_MS);
     },
     [onComplete],
   );
@@ -60,8 +63,10 @@ export function LugNuts({ nuts, timeLimit, maxMistakes, onComplete }: LugNutsPro
     }
 
     if (outcome === 'failed') finish(false);
-    if (outcome === 'done') finish(true);
-  }, [state, maxMistakes, finish]);
+    if (outcome === 'done') {
+      finish(true, scoreRun({ timeLeft: remainingMs / 1000, timeLimit, mistakes: next.mistakes, maxMistakes }));
+    }
+  }, [state, maxMistakes, finish, remainingMs, timeLimit]);
 
   // Number keys 1 to 9 tighten the matching nut.
   useEffect(() => {
@@ -92,7 +97,7 @@ export function LugNuts({ nuts, timeLimit, maxMistakes, onComplete }: LugNutsPro
       {/* Torque status */}
       <div className="torque-meter-bar">
         <div className="torque-info">
-          <span className="torque-label">Couple de serrage</span>
+          <span className="torque-label">{loosening ? 'Desserrage' : 'Couple de serrage'}</span>
           <span className="torque-value">{currentTorque} / {TARGET_TORQUE} Nm</span>
         </div>
         <div className="torque-track">
@@ -274,7 +279,7 @@ export function LugNuts({ nuts, timeLimit, maxMistakes, onComplete }: LugNutsPro
       </div>
 
       <p className="minigame-hint">
-        Serrez les écrous en étoile (<kbd>1</kbd> à <kbd>{nuts}</kbd> ou clic direct)
+        {loosening ? 'Desserrez' : 'Serrez'} les écrous en étoile (<kbd>1</kbd> à <kbd>{nuts}</kbd> ou clic direct)
       </p>
     </div>
   );

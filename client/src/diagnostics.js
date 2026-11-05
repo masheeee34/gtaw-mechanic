@@ -4,6 +4,9 @@
  * @typedef {{ index: number, burst: boolean, onRim: boolean }} WheelState
  * @typedef {{
  *   engineHealth: number,
+ *   engineTemperature?: number,
+ *   oilLevel?: number,
+ *   fuelLevel?: number,
  *   bodyHealth: number,
  *   tankHealth: number,
  *   wheels: WheelState[],
@@ -17,6 +20,12 @@
 const percent = (value) => Math.round(Math.min(Math.max(value, 0), 1000) / 10);
 const ratio = (intact, total) => (total === 0 ? 100 : Math.round((100 * intact) / total));
 const plural = (count, singular, pluralForm) => `${count} ${count === 1 ? singular : pluralForm}`;
+const decimal = (value) => value.toFixed(1).replace('.', ',');
+
+/** Raw readings shown in a part's detail card; a reading the game does not give is left out. */
+function metrics(readings) {
+  return readings.filter(([, value]) => Number.isFinite(value)).map(([label, value, format]) => ({ label, value: format(value) }));
+}
 
 /** @returns {'good' | 'worn' | 'critical'} */
 export function statusFor(health, thresholds) {
@@ -25,18 +34,28 @@ export function statusFor(health, thresholds) {
   return 'critical';
 }
 
-// Each inspector returns { health, detail }, or null when the vehicle does not have that part.
+// Each inspector returns { health, detail, metrics? }, or null when the vehicle does not have that part.
 const INSPECTORS = {
   engine(state) {
     const health = percent(state.engineHealth);
-    if (state.engineHealth <= 0) return { health, detail: 'Moteur hors service, le véhicule roule à peine.' };
-    if (health < 40) return { health, detail: 'Dégâts importants, le moteur doit être révisé.' };
-    return { health, detail: health < 100 ? 'Usure détectée sur les composants du moteur.' : 'Fonctionne parfaitement.' };
+    const readings = metrics([
+      ['État', state.engineHealth, (value) => `${Math.round(Math.max(value, 0))} / 1000`],
+      ['Température', state.engineTemperature, (value) => `${Math.round(value)} °C`],
+      ['Huile', state.oilLevel, (value) => `${decimal(value)} L`],
+    ]);
+    if (state.engineHealth <= 0) return { health, detail: 'Moteur hors service, le véhicule roule à peine.', metrics: readings };
+    if (health < 40) return { health, detail: 'Dégâts importants, le moteur doit être révisé.', metrics: readings };
+    const detail = health < 100 ? 'Usure détectée sur les composants du moteur.' : 'Fonctionne parfaitement.';
+    return { health, detail, metrics: readings };
   },
 
   fuel_tank(state) {
     const health = percent(state.tankHealth);
-    return { health, detail: health < 100 ? 'Réservoir endommagé, risque de fuite.' : 'Aucune fuite détectée.' };
+    const readings = metrics([
+      ['État', state.tankHealth, (value) => `${Math.round(Math.max(value, 0))} / 1000`],
+      ['Carburant', state.fuelLevel, (value) => `${decimal(value)} L`],
+    ]);
+    return { health, detail: health < 100 ? 'Réservoir endommagé, risque de fuite.' : 'Aucune fuite détectée.', metrics: readings };
   },
 
   body(state) {
@@ -76,6 +95,7 @@ export function diagnose(state, parts, thresholds) {
     return [
       {
         id: part.id,
+        type: part.type,
         label: part.label,
         category: part.category,
         item: part.item,
@@ -83,6 +103,7 @@ export function diagnose(state, parts, thresholds) {
         health: result.health,
         status: statusFor(result.health, thresholds),
         detail: result.detail,
+        metrics: result.metrics ?? [],
         needsRepair: result.health < 100,
       },
     ];

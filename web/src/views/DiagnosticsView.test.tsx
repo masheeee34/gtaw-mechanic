@@ -54,7 +54,7 @@ describe('DiagnosticsView', () => {
     renderView({ showHealthy: false });
 
     expect(screen.queryByText('Réservoir')).not.toBeInTheDocument();
-    expect(screen.getByText('Moteur')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Mécanique' })).getByText('Moteur')).toBeInTheDocument();
   });
 
   it('reports the toggle change', async () => {

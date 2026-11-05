@@ -13,6 +13,10 @@ namespace GtawMechanic.Core
         public const string Busy = "busy";
         public const string NoPart = "no_part";
         public const string TooFarFromRack = "too_far_from_rack";
+        public const string InvalidNote = "invalid_note";
+        public const string TooManyNotes = "too_many_notes";
+        public const string NoteNotFound = "note_not_found";
+        public const string TooFast = "too_fast";
         public const string Database = "db_error";
         public const string DatabaseUnavailable = "db_unavailable";
     }

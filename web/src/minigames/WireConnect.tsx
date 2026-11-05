@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { scoreRun, type MinigameComplete } from './quality';
 import { MAX_MISTAKES, connectDestination, createWireConnect, selectSource } from './wireConnectRules';
 
 const WIRE_COLORS = ['#ef5b5b', '#5b8cef', '#3ccf8e', '#f5a524', '#b05bef', '#5bcfef'];
@@ -9,7 +10,7 @@ const TICK_MS = 100;
 interface WireConnectProps {
   wires: number;
   timeLimit: number;
-  onComplete: (success: boolean) => void;
+  onComplete: MinigameComplete;
   random?: () => number;
 }
 
@@ -24,11 +25,11 @@ export function WireConnect({ wires, timeLimit, onComplete, random = Math.random
   const completion = useRef<number | undefined>(undefined);
 
   const finish = useCallback(
-    (success: boolean) => {
+    (success: boolean, quality = 0) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
       setFinished(true);
-      completion.current = window.setTimeout(() => onComplete(success), FEEDBACK_MS);
+      completion.current = window.setTimeout(() => onComplete(success, quality), FEEDBACK_MS);
     },
     [onComplete],
   );
@@ -63,7 +64,9 @@ export function WireConnect({ wires, timeLimit, onComplete, random = Math.random
     setState(next);
     if (outcome === 'wrong' || outcome === 'failed') setWrongSource(source);
     if (outcome === 'failed') finish(false);
-    if (outcome === 'done') finish(true);
+    if (outcome === 'done') {
+      finish(true, scoreRun({ timeLeft: remainingMs / 1000, timeLimit, mistakes: next.mistakes, maxMistakes: MAX_MISTAKES - 1 }));
+    }
   };
 
   // mapping[source] is the destination a source must reach, so this gives the source behind each destination.

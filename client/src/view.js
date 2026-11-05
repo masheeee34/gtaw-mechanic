@@ -1,7 +1,7 @@
 // 3D inspection view, pure maths in the vehicle's local space (x right, y forward, z up): where each
 // part's marker sits on the car, and where the camera stands to show the whole car or one part.
 
-import { WHEEL_BONES } from './vehicle.js';
+import { WHEEL_BONES, WINDOW_BONES } from './vehicle.js';
 
 /** Vertical field of view of the inspection camera, in degrees. */
 export const FOV = 50;
@@ -27,6 +27,28 @@ const FOCUS = {
   windows: { distance: 2.8, height: 0.9 },
   tire: { distance: 2.1, height: 0.5 },
 };
+
+const WINDOW_LABELS = {
+  0: 'Vitre avant gauche',
+  1: 'Vitre avant droite',
+  2: 'Vitre arrière gauche',
+  3: 'Vitre arrière droite',
+  6: 'Pare-brise',
+  7: 'Lunette arrière',
+};
+
+// Door bones sit on the hinge: `shift` moves the spot to the middle of the panel (local y, metres).
+const DOORS = {
+  0: { bone: 'door_dside_f', label: 'Portière avant gauche', shift: -0.45 },
+  1: { bone: 'door_pside_f', label: 'Portière avant droite', shift: -0.45 },
+  2: { bone: 'door_dside_r', label: 'Portière arrière gauche', shift: -0.4 },
+  3: { bone: 'door_pside_r', label: 'Portière arrière droite', shift: -0.4 },
+  4: { bone: 'bonnet', label: 'Capot', shift: 0.5 },
+  5: { bone: 'boot', label: 'Coffre', shift: -0.35 },
+};
+
+/** Dent depth (deformation, metres) from which a dent shows, and from which it is a heavy one. */
+export const DENT_DEPTH = { light: 0.02, heavy: 0.08 };
 
 const center = ({ min, max }) => ({ x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 });
 
@@ -73,26 +95,31 @@ function aimed(camera, target, aspect) {
   return { camera, target: { x: target.x + (dy / length) * shift, y: target.y - (dx / length) * shift, z: target.z } };
 }
 
-/** The whole car, seen from `yaw` degrees around it (0 = in front, 90 = its right side). */
-export function overviewPose(dims, yaw, aspect) {
+/**
+ * The whole car, seen from `yaw` degrees around it (0 = in front, 90 = its right side). `zoom` scales
+ * the distance, `lift` raises (or lowers) the camera, in metres.
+ */
+export function overviewPose(dims, yaw, aspect, zoom = 1, lift = 0) {
   const middle = center(dims);
   const length = dims.max.y - dims.min.y;
   const width = dims.max.x - dims.min.x;
   const height = dims.max.z - dims.min.z;
-  const distance = Math.hypot(length, width) + 1.8;
+  const distance = (Math.hypot(length, width) + 1.8) * zoom;
   const angle = (yaw * Math.PI) / 180;
   const camera = {
     x: middle.x + Math.sin(angle) * distance,
     y: middle.y + Math.cos(angle) * distance,
-    z: middle.z + height * 0.5 + 1.2,
+    z: middle.z + height * 0.5 + 1.2 + lift,
   };
   return aimed(camera, middle, aspect);
 }
 
 /** Close on one part, from outside the car, on the side the part is on. */
-export function focusPose(part, anchor, dims, aspect) {
+export function focusPose(part, anchor, dims, aspect, zoom = 1) {
   const middle = center(dims);
-  const { distance, height } = FOCUS[part.type] ?? FOCUS.body;
+  const settings = FOCUS[part?.type] ?? FOCUS.body;
+  const distance = settings.distance * zoom;
+  const height = settings.height * zoom;
   let dx = anchor.x - middle.x;
   let dy = anchor.y - middle.y;
   const length = Math.hypot(dx, dy);
@@ -105,4 +132,79 @@ export function focusPose(part, anchor, dims, aspect) {
 export function facesCamera(anchor, camera, dims) {
   const middle = center(dims);
   return (anchor.x - middle.x) * (camera.x - middle.x) + (anchor.y - middle.y) * (camera.y - middle.y) >= -0.3;
+}
+
+/**
+ * Where to show a part on the car: its own spot, plus, for windows and bodywork, one spot per broken
+ * window or damaged door, so the mechanic sees exactly which one (the NUI shows those only once the
+ * part is selected).
+ * @param {import('./diagnostics.js').VehicleState} state
+ * @returns {{ id: string, partId: string, label: string | null, anchor: { x: number, y: number, z: number } }[]}
+ */
+export function partSpots(part, dims, bonePosition, state) {
+  const many = (indexes, locate) =>
+    indexes.flatMap((index) => {
+      const spot = locate(index);
+      return spot ? [{ id: `${part.id}:${index}`, partId: part.id, ...spot }] : [];
+    });
+
+  let spots = [];
+  if (part.type === 'windows') {
+    spots = many(state.windows.broken, (index) => {
+      const anchor = bonePosition(WINDOW_BONES[index]);
+      return anchor && { label: WINDOW_LABELS[index], anchor };
+    });
+  } else if (part.type === 'body') {
+    spots = many(state.doors.damaged, (index) => {
+      const door = DOORS[index];
+      const hinge = door && bonePosition(door.bone);
+      return hinge && { label: door.label, anchor: { ...hinge, y: hinge.y + door.shift } };
+    });
+  }
+  return [{ id: part.id, partId: part.id, label: null, anchor: partAnchor(part, dims, bonePosition) }, ...spots];
+}
+
+/** Points probed for dents: around the body at mid height, front to back on each side, and the roof. */
+export function dentProbes(dims) {
+  const { min, max } = dims;
+  const middle = center(dims);
+  const at = (x, y, z = middle.z) => ({ x, y, z });
+  const width = (max.x - min.x) / 2;
+  const length = (max.y - min.y) / 2;
+  return [
+    { zone: 'avant gauche', point: at(middle.x - width * 0.6, max.y * 0.95) },
+    { zone: 'avant', point: at(middle.x, max.y * 0.95) },
+    { zone: 'avant droit', point: at(middle.x + width * 0.6, max.y * 0.95) },
+    { zone: 'arrière gauche', point: at(middle.x - width * 0.6, min.y * 0.95) },
+    { zone: 'arrière', point: at(middle.x, min.y * 0.95) },
+    { zone: 'arrière droit', point: at(middle.x + width * 0.6, min.y * 0.95) },
+    { zone: 'flanc gauche avant', point: at(min.x * 0.95, middle.y + length * 0.45) },
+    { zone: 'flanc gauche', point: at(min.x * 0.95, middle.y) },
+    { zone: 'flanc gauche arrière', point: at(min.x * 0.95, middle.y - length * 0.45) },
+    { zone: 'flanc droit avant', point: at(max.x * 0.95, middle.y + length * 0.45) },
+    { zone: 'flanc droit', point: at(max.x * 0.95, middle.y) },
+    { zone: 'flanc droit arrière', point: at(max.x * 0.95, middle.y - length * 0.45) },
+    { zone: 'toit', point: at(middle.x, middle.y, max.z * 0.95) },
+  ];
+}
+
+/**
+ * Dents found by the probes, as spots of the bodywork part.
+ * @param {(point: { x: number, y: number, z: number }) => number} depthAt deformation depth at a local point
+ */
+export function dentSpots(bodyPartId, dims, depthAt) {
+  return dentProbes(dims).flatMap(({ zone, point }, index) => {
+    const depth = depthAt(point);
+    if (depth < DENT_DEPTH.light) return [];
+    const heavy = depth >= DENT_DEPTH.heavy;
+    return [
+      {
+        id: `dent:${index}`,
+        partId: bodyPartId,
+        label: `Choc ${zone}`,
+        anchor: point,
+        dent: heavy ? 'heavy' : 'light',
+      },
+    ];
+  });
 }

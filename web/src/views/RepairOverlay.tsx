@@ -14,12 +14,13 @@ export interface RepairState {
 
 interface RepairOverlayProps {
   repair: RepairState;
-  onFinish: (success: boolean, cancelled?: boolean) => void;
+  onFinish: (success: boolean, cancelled: boolean, quality: number) => void;
 }
 
 export function RepairOverlay({ repair, onFinish }: RepairOverlayProps) {
   const { part, phase, minigame } = repair;
   const playing = phase === 'playing';
+  const complete = (success: boolean, quality: number) => onFinish(success, false, quality);
 
   // A button may still have focus from the menu, and Space would click it again.
   useEffect(() => {
@@ -29,7 +30,7 @@ export function RepairOverlay({ repair, onFinish }: RepairOverlayProps) {
   useEffect(() => {
     if (!playing) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onFinish(false, true);
+      if (event.key === 'Escape') onFinish(false, true, 0);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -45,10 +46,10 @@ export function RepairOverlay({ repair, onFinish }: RepairOverlayProps) {
         </header>
 
         <div className="repair-body">
-          {playing && minigame.type === 'skillcheck' && <SkillCheck {...minigame} onComplete={onFinish} />}
-          {playing && minigame.type === 'lugnuts' && <LugNuts {...minigame} onComplete={onFinish} />}
-          {playing && minigame.type === 'wireconnect' && <WireConnect {...minigame} onComplete={onFinish} />}
-          {playing && minigame.type === 'pressuregauge' && <PressureGauge {...minigame} onComplete={onFinish} />}
+          {playing && minigame.type === 'skillcheck' && <SkillCheck {...minigame} onComplete={complete} />}
+          {playing && minigame.type === 'lugnuts' && <LugNuts {...minigame} onComplete={complete} />}
+          {playing && minigame.type === 'wireconnect' && <WireConnect {...minigame} onComplete={complete} />}
+          {playing && minigame.type === 'pressuregauge' && <PressureGauge {...minigame} onComplete={complete} />}
           {!playing && (
             <div className="status" role="status">
               <LoaderCircle size={18} />

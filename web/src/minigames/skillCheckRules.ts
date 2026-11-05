@@ -40,3 +40,10 @@ export function needlePosition(elapsedMs: number, speed: number): number {
 export function isHit(position: number, zone: Zone): boolean {
   return position >= zone.start && position <= zone.end;
 }
+
+/** How close to the middle of the zone the needle stopped: 1 dead centre, 0 on the edge or outside. */
+export function precision(position: number, zone: Zone): number {
+  const half = (zone.end - zone.start) / 2;
+  if (half <= 0) return 0;
+  return Math.max(0, 1 - Math.abs(position - (zone.start + half)) / half);
+}

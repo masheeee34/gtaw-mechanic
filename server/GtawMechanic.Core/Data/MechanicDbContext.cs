@@ -22,6 +22,19 @@ namespace GtawMechanic.Core.Data
         public DateTime RepairedAt { get; set; }
     }
 
+    /// <summary>A note a mechanic pinned on a spot of a vehicle, in the vehicle's local space.</summary>
+    public class VehicleNote
+    {
+        public long Id { get; set; }
+        public string Plate { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public string Text { get; set; }
+        public string Author { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
     /// <summary>
     /// Mapped to the tables created by sql/install.sql. Provider-agnostic: Pomelo (MySQL) in game,
     /// SQLite in the tests.
@@ -35,6 +48,7 @@ namespace GtawMechanic.Core.Data
 
         public DbSet<GarageStock> Stock { get; set; }
         public DbSet<RepairRecord> Repairs { get; set; }
+        public DbSet<VehicleNote> Notes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -65,6 +79,23 @@ namespace GtawMechanic.Core.Data
                     .HasColumnName("repaired_at")
                     .HasConversion(value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
                 entity.HasIndex(record => record.Plate);
+            });
+
+            modelBuilder.Entity<VehicleNote>(entity =>
+            {
+                entity.ToTable("mechanic_notes");
+                entity.HasKey(note => note.Id);
+                entity.Property(note => note.Id).HasColumnName("id");
+                entity.Property(note => note.Plate).HasColumnName("plate").HasMaxLength(16).IsRequired();
+                entity.Property(note => note.X).HasColumnName("x");
+                entity.Property(note => note.Y).HasColumnName("y");
+                entity.Property(note => note.Z).HasColumnName("z");
+                entity.Property(note => note.Text).HasColumnName("text").HasMaxLength(200).IsRequired();
+                entity.Property(note => note.Author).HasColumnName("author").HasMaxLength(64).IsRequired();
+                entity.Property(note => note.CreatedAt)
+                    .HasColumnName("created_at")
+                    .HasConversion(value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+                entity.HasIndex(note => note.Plate);
             });
         }
     }

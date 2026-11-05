@@ -21,3 +21,16 @@ CREATE TABLE IF NOT EXISTS `mechanic_repairs` (
   PRIMARY KEY (`id`),
   KEY `ix_mechanic_repairs_plate` (`plate`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `mechanic_notes` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `plate` VARCHAR(16) NOT NULL,
+  `x` FLOAT NOT NULL,
+  `y` FLOAT NOT NULL,
+  `z` FLOAT NOT NULL,
+  `text` VARCHAR(200) NOT NULL,
+  `author` VARCHAR(64) NOT NULL,
+  `created_at` DATETIME(6) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ix_mechanic_notes_plate` (`plate`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

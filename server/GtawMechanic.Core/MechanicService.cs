@@ -34,6 +34,34 @@ namespace GtawMechanic.Core
         public DateTime RepairedAt { get; set; }
     }
 
+    public sealed class NoteEntry
+    {
+        public long Id { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public string Text { get; set; }
+        public string Author { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public sealed class NotesResult
+    {
+        private NotesResult(string error, IReadOnlyList<NoteEntry> notes)
+        {
+            Error = error;
+            Notes = notes;
+        }
+
+        public bool Success => Error == null;
+        public string Error { get; }
+        public IReadOnlyList<NoteEntry> Notes { get; }
+
+        public static NotesResult Ok(IReadOnlyList<NoteEntry> notes) => new NotesResult(null, notes);
+
+        public static NotesResult Fail(string error) => new NotesResult(error, Array.Empty<NoteEntry>());
+    }
+
     public sealed class StockResult
     {
         private StockResult(string error, IReadOnlyList<StockEntry> stock)
@@ -57,6 +85,11 @@ namespace GtawMechanic.Core
     /// </summary>
     public sealed class MechanicService
     {
+        public const int MaxNoteLength = 200;
+        public const int MaxNotesPerVehicle = 20;
+        /// <summary>How far from the vehicle's origin a note may sit, in metres (local space).</summary>
+        public const float MaxNoteOffset = 10f;
+
         private const int MaxSaveAttempts = 3;
 
         private readonly MechanicConfig _config;
@@ -238,6 +271,70 @@ namespace GtawMechanic.Core
                     Quantity = quantities.TryGetValue(itemId, out var quantity) ? quantity : 0,
                 })
                 .ToList();
+        }
+
+        public async Task<IReadOnlyList<NoteEntry>> GetNotesAsync(string plate)
+        {
+            using (var db = _createContext())
+            {
+                return await db.Notes
+                    .AsNoTracking()
+                    .Where(note => note.Plate == plate)
+                    .OrderBy(note => note.CreatedAt)
+                    .ThenBy(note => note.Id)
+                    .Select(note => new NoteEntry
+                    {
+                        Id = note.Id,
+                        X = note.X,
+                        Y = note.Y,
+                        Z = note.Z,
+                        Text = note.Text,
+                        Author = note.Author,
+                        CreatedAt = note.CreatedAt,
+                    })
+                    .ToListAsync();
+            }
+        }
+
+        /// <summary>
+        /// Pins a note on a vehicle. The text is trimmed and kept on one line; the position must be close
+        /// to the vehicle, and a vehicle holds a limited number of notes.
+        /// </summary>
+        public async Task<NotesResult> AddNoteAsync(string plate, float x, float y, float z, string text, string author)
+        {
+            var clean = CleanNote(text);
+            if (clean == null || !IsNear(x) || !IsNear(y) || !IsNear(z)) return NotesResult.Fail(Errors.InvalidNote);
+
+            using (var db = _createContext())
+            {
+                var count = await db.Notes.CountAsync(note => note.Plate == plate);
+                if (count >= MaxNotesPerVehicle) return NotesResult.Fail(Errors.TooManyNotes);
+                db.Notes.Add(new VehicleNote { Plate = plate, X = x, Y = y, Z = z, Text = clean, Author = author, CreatedAt = _utcNow() });
+                await db.SaveChangesAsync();
+            }
+            return NotesResult.Ok(await GetNotesAsync(plate));
+        }
+
+        public async Task<NotesResult> DeleteNoteAsync(string plate, long noteId)
+        {
+            using (var db = _createContext())
+            {
+                var note = await db.Notes.FirstOrDefaultAsync(candidate => candidate.Id == noteId && candidate.Plate == plate);
+                if (note == null) return NotesResult.Fail(Errors.NoteNotFound);
+                db.Notes.Remove(note);
+                await db.SaveChangesAsync();
+            }
+            return NotesResult.Ok(await GetNotesAsync(plate));
+        }
+
+        private static bool IsNear(float value) => !float.IsNaN(value) && Math.Abs(value) <= MaxNoteOffset;
+
+        /// <summary>The note on one line, trimmed; null when empty or too long.</summary>
+        public static string CleanNote(string text)
+        {
+            if (text == null) return null;
+            var line = string.Join(" ", text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            return line.Length == 0 || line.Length > MaxNoteLength ? null : line;
         }
     }
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PartMarkers } from './components/PartMarkers';
 import { Window, type Toast, type View } from './components/Window';
 import { fetchNui, isEnvBrowser, requestNui, useNuiMessage } from './lib/nui';
-import type { MinigameRequest, PartDiagnosis, PartMarker, ScanData, SessionData, SessionUpdate } from './types';
+import { repairOrder } from './lib/repairOrder';
+import { qualityLevel } from './minigames/quality';
+import type { MinigameRequest, PartDiagnosis, PartMarker, SessionData, SessionUpdate, VehicleNote } from './types';
 import { DiagnosticsView } from './views/DiagnosticsView';
 import { HistoryView } from './views/HistoryView';
 import { RepairOverlay, type RepairState } from './views/RepairOverlay';
@@ -12,25 +14,27 @@ import { StockView } from './views/StockView';
 const TOAST_DURATION_MS = 4000;
 
 // The game client drives the screens with messages:
-//   scan → open (menu) → [Réparer] hidden while the mechanic fetches and carries the part
+//   open (3D scan, then the menu) → [Réparer] hidden while the mechanic fetches and carries the part
 //   → minigame → back to the menu, or hidden again to retry → close
 export function App() {
   const [session, setSession] = useState<SessionData | null>(null);
-  const [scan, setScan] = useState<ScanData | null>(null);
+  const [revealMs, setRevealMs] = useState<number | null>(null);
   const [hidden, setHidden] = useState(false);
   const [view, setView] = useState<View>('diagnostics');
   const [query, setQuery] = useState('');
-  const [showHealthy, setShowHealthy] = useState(true);
+  const [showHealthy, setShowHealthy] = useState(false);
   const [repair, setRepair] = useState<RepairState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [markers, setMarkers] = useState<PartMarker[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [xray, setXray] = useState(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
   const open = useCallback((data: SessionData) => {
     setSession(data);
-    setScan(null);
+    setRevealMs(data.scan ?? null);
+    setXray(false);
     setHidden(false);
     setView('diagnostics');
     setQuery('');
@@ -42,19 +46,20 @@ export function App() {
 
   const reset = useCallback(() => {
     setSession(null);
-    setScan(null);
+    setRevealMs(null);
+    setXray(false);
     setHidden(false);
     setRepair(null);
     setMarkers([]);
     setFocusedId(null);
   }, []);
 
-  useNuiMessage<ScanData>('scan', setScan);
   useNuiMessage<SessionData>('open', open);
   useNuiMessage<Partial<SessionUpdate>>('update', (update) => setSession((current) => current && { ...current, ...update }));
   useNuiMessage('show', () => {
     setHidden(false);
     setFocusedId(null);
+    setXray(false);
   });
   useNuiMessage<{ markers: PartMarker[] }>('markers', (data) => setMarkers(data.markers));
   useNuiMessage('close', reset);
@@ -78,15 +83,53 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // 3D view: the client moves its camera onto the part, or back to the whole car.
-  const focus = useCallback((partId: string | null) => {
-    setFocusedId(partId);
-    void fetchNui('view:focus', { partId });
+  // The 3D scan ends on its own; the menu then slides in.
+  useEffect(() => {
+    if (revealMs === null) return;
+    const timer = window.setTimeout(() => setRevealMs(null), revealMs);
+    return () => window.clearTimeout(timer);
+  }, [revealMs]);
+
+  // 3D view: the client moves its camera onto a spot or a part, or back to the whole car.
+  const focus = useCallback((id: string | null) => {
+    setFocusedId(id);
+    void fetchNui('view:focus', { id });
   }, []);
 
-  const rotate = useCallback((degrees: number) => {
+  const orbit = useCallback((yaw: number, lift: number) => {
     setFocusedId(null);
-    void fetchNui('view:rotate', { delta: degrees });
+    void fetchNui('view:orbit', { yaw, lift });
+  }, []);
+
+  const zoom = useCallback((factor: number) => void fetchNui('view:zoom', { factor }), []);
+
+  // Notes pinned on the car: the client asks the server, which answers with the vehicle's notes.
+  const addNote = useCallback(
+    async (spotId: string, text: string) => {
+      const response = await requestNui<VehicleNote[]>('note:add', { spotId, text });
+      if (!response.ok) {
+        notify('error', response.message);
+        return false;
+      }
+      setSession((current) => current && { ...current, notes: response.data });
+      return true;
+    },
+    [notify],
+  );
+
+  const deleteNote = useCallback(
+    async (id: number) => {
+      const response = await requestNui<VehicleNote[]>('note:delete', { id });
+      if (!response.ok) return notify('error', response.message);
+      setFocusedId(null);
+      setSession((current) => current && { ...current, notes: response.data });
+    },
+    [notify],
+  );
+
+  const changeXray = useCallback((enabled: boolean) => {
+    setXray(enabled);
+    void fetchNui('view:xray', { enabled });
   }, []);
 
   const menuVisible = session !== null && !hidden && repair === null;
@@ -98,13 +141,13 @@ export function App() {
         if (focusedId) focus(null);
         else close();
       }
-      if (event.target instanceof HTMLInputElement) return;
-      if (event.key === 'ArrowLeft') rotate(-20);
-      if (event.key === 'ArrowRight') rotate(20);
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === 'ArrowLeft') orbit(-20, 0);
+      if (event.key === 'ArrowRight') orbit(20, 0);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [menuVisible, close, focus, rotate, focusedId]);
+  }, [menuVisible, close, focus, orbit, focusedId]);
 
   // The menu steps aside: the mechanic now has to fetch the part and carry it to the car.
   const startRepair = useCallback(
@@ -120,44 +163,72 @@ export function App() {
   );
 
   const finishRepair = useCallback(
-    async (success: boolean, cancelled = false) => {
+    async (success: boolean, cancelled: boolean, quality: number) => {
       if (!repair) return;
       const { part } = repair;
       if (success) setRepair({ ...repair, phase: 'saving' });
 
-      const response = await requestNui<SessionUpdate>('repair:finish', { partId: part.id, success, cancelled });
+      const response = await requestNui<SessionUpdate | null>('repair:finish', { partId: part.id, success, cancelled, quality });
       setRepair(null);
       if (!response.ok) {
         notify('error', response.message);
         setHidden(response.show === false);
         return;
       }
+      // A step of the job is done but not the repair (a tire's old wheel is off): back to the world.
+      if (response.data === null) {
+        setHidden(true);
+        return;
+      }
 
       setSession((current) => current && { ...current, ...response.data });
       setHidden(false);
       setFocusedId(null);
+      setXray(false);
       const item = response.data.stock.find((entry) => entry.itemId === part.item)?.label ?? part.item;
-      notify('success', `Réparation terminée : ${part.label} (${part.quantity}× ${item}).`);
+      notify('success', `Réparation terminée : ${part.label} (${part.quantity}× ${item}), travail ${qualityLevel(quality)}.`);
     },
     [repair, notify],
   );
 
   if (repair) return <RepairOverlay repair={repair} onFinish={finishRepair} />;
-  if (scan && !session) return <ScanOverlay key={scan.steps.join()} {...scan} />;
   if (!session) return import.meta.env.DEV && isEnvBrowser() ? <DevLauncher onOpen={open} /> : null;
   if (hidden) return null;
 
+  const order = new Map(repairOrder(session.parts).map(({ part, step }) => [part.id, step]));
+  const focusedPartId = markers.find((marker) => marker.id === focusedId)?.partId ?? focusedId;
+  const vehicleView = (
+    <PartMarkers
+      parts={session.parts}
+      stock={session.stock}
+      notes={session.notes}
+      markers={markers}
+      focusedId={focusedId}
+      order={order}
+      revealMs={revealMs ?? undefined}
+      xray={xray}
+      onFocus={focus}
+      onOrbit={orbit}
+      onZoom={zoom}
+      onXrayChange={changeXray}
+      onRepair={startRepair}
+      onAddNote={addNote}
+      onDeleteNote={deleteNote}
+    />
+  );
+
+  if (revealMs !== null) {
+    return (
+      <div className="screen">
+        {vehicleView}
+        <ScanOverlay duration={revealMs} steps={session.parts.map((part) => part.label)} />
+      </div>
+    );
+  }
+
   return (
     <div className="screen">
-      <PartMarkers
-        parts={session.parts}
-        stock={session.stock}
-        markers={markers}
-        focusedId={focusedId}
-        onFocus={focus}
-        onRotate={rotate}
-        onRepair={startRepair}
-      />
+      {vehicleView}
       <Window
         vehicle={session.vehicle}
         condition={session.condition}
@@ -178,13 +249,13 @@ export function App() {
             query={query}
             showHealthy={showHealthy}
             onShowHealthyChange={setShowHealthy}
-            focusedId={focusedId}
+            focusedPartId={focusedPartId}
             onRepair={startRepair}
             onLocate={focus}
           />
         )}
         {view === 'stock' && <StockView session={session} query={query} />}
-        {view === 'history' && <HistoryView session={session} query={query} />}
+        {view === 'history' && <HistoryView session={session} query={query} onLocate={focus} />}
       </Window>
     </div>
   );
@@ -196,13 +267,9 @@ let devAutoOpened = false;
 // load and again after a close. Goes through postMessage, the same path the game client uses.
 function DevLauncher({ onOpen }: { onOpen: (data: SessionData) => void }) {
   const launch = useCallback(async () => {
-    const { createMockSession, MOCK_SCAN } = await import('./lib/mock');
-    const { MOCK_MARKERS } = await import('./lib/mock');
-    window.postMessage({ action: 'scan', data: MOCK_SCAN }, '*');
-    window.setTimeout(() => {
-      onOpen(createMockSession());
-      window.postMessage({ action: 'markers', data: { markers: MOCK_MARKERS } }, '*');
-    }, MOCK_SCAN.duration);
+    const { createMockSession, MOCK_MARKERS, MOCK_SCAN_MS } = await import('./lib/mock');
+    onOpen({ ...createMockSession(), scan: MOCK_SCAN_MS });
+    window.postMessage({ action: 'markers', data: { markers: MOCK_MARKERS } }, '*');
   }, [onOpen]);
 
   useEffect(() => {

@@ -1,7 +1,7 @@
 // Browser-only stand-in for the game client, so the UI can be developed with `npm run dev:web`.
 // Imported dynamically behind import.meta.env.DEV: none of this ends up in the production build.
 
-import type { Condition, HistoryEntry, MinigameConfig, PartDiagnosis, PartMarker, PartStatus, SessionData, SessionUpdate } from '../types';
+import type { Condition, HistoryEntry, MinigameConfig, PartDiagnosis, PartMarker, PartMetric, PartStatus, SessionData, SessionUpdate } from '../types';
 
 const MINIGAMES: Record<string, MinigameConfig> = {
   engine: { type: 'skillcheck', rounds: 3, zoneSize: 0.14, speed: 0.9 },
@@ -21,8 +21,10 @@ function part(
   quantity: number,
   health: number,
   detail: string,
+  metrics: PartMetric[] = [],
 ): PartDiagnosis {
-  return { id, label, category, item, quantity, health, status: statusFor(health), detail, needsRepair: health < 100 };
+  const type = id.startsWith('tire_') ? 'tire' : id;
+  return { id, type, label, category, item, quantity, health, status: statusFor(health), detail, metrics, needsRepair: health < 100 };
 }
 
 function summarize(parts: PartDiagnosis[]): Condition {
@@ -35,7 +37,11 @@ let nextHistoryId = 100;
 
 export function createMockSession(): SessionData {
   const parts = [
-    part('engine', 'Moteur', 'Mécanique', 'engine_parts', 1, 32, 'Dégâts importants, le moteur doit être révisé.'),
+    part('engine', 'Moteur', 'Mécanique', 'engine_parts', 1, 32, 'Dégâts importants, le moteur doit être révisé.', [
+      { label: 'État', value: '320 / 1000' },
+      { label: 'Température', value: '104 °C' },
+      { label: 'Huile', value: '3,1 L' },
+    ]),
     part('fuel_tank', 'Réservoir', 'Mécanique', 'fuel_tank', 1, 100, 'Aucune fuite détectée.'),
     part('body', 'Tôlerie', 'Carrosserie', 'body_panel', 2, 58, 'Bosses et rayures · 1 portière endommagée.'),
     part('windows', 'Vitres', 'Carrosserie', 'glass_kit', 1, 67, '2 vitres cassées sur 6.'),
@@ -56,6 +62,7 @@ export function createMockSession(): SessionData {
       { itemId: 'glass_kit', label: 'Kit vitrage', description: 'Pare-brise et vitres latérales.', quantity: 4 },
       { itemId: 'tire', label: 'Pneu', description: 'Pneu routier standard, jante comprise.', quantity: 7 },
     ],
+    notes: [{ id: 1, text: 'Rayure portière avant gauche, déjà présente au dépôt.', author: 'Jamie Ortega', createdAt: '2026-11-02T19:40:00Z' }],
     history: [
       { id: 2, partId: 'tire_rl', partLabel: 'Pneu arrière gauche', garageLabel: 'La Mesa Auto Repair', mechanicName: 'Jamie Ortega', repairedAt: '2026-11-02T19:42:00Z' },
       { id: 1, partId: 'engine', partLabel: 'Moteur', garageLabel: 'Los Santos Customs - Burton', mechanicName: 'Alex Moreau', repairedAt: '2026-10-28T14:05:00Z' },
@@ -77,25 +84,38 @@ export async function mockNui(event: string, data: unknown): Promise<unknown> {
   }
 
   if (event === 'repair:finish') return finishRepair(payload);
+  if (event === 'note:add' && session) {
+    const { text } = data as { text: string };
+    session.notes = [...session.notes, { id: Date.now(), text, author: 'Vous', createdAt: new Date().toISOString() }];
+    return { ok: true, data: session.notes };
+  }
+  if (event === 'note:delete' && session) {
+    const { id } = data as { id: number };
+    session.notes = session.notes.filter((note) => note.id !== id);
+    return { ok: true, data: session.notes };
+  }
   return { ok: true, data: null };
 }
 
 // Where the client would project each part on a car filmed in 3/4 front-left (dev server only).
 export const MOCK_MARKERS: PartMarker[] = [
-  { id: 'engine', x: 0.29, y: 0.42, front: true },
-  { id: 'windows', x: 0.36, y: 0.33, front: true },
-  { id: 'body', x: 0.27, y: 0.55, front: true },
-  { id: 'fuel_tank', x: 0.47, y: 0.47, front: false },
-  { id: 'tire_fl', x: 0.17, y: 0.63, front: true },
-  { id: 'tire_fr', x: 0.33, y: 0.68, front: true },
-  { id: 'tire_rl', x: 0.43, y: 0.58, front: true },
-  { id: 'tire_rr', x: 0.52, y: 0.6, front: false },
+  { id: 'engine', partId: 'engine', label: null, dent: null, note: null, x: 0.29, y: 0.42, front: true },
+  { id: 'windows', partId: 'windows', label: null, dent: null, note: null, x: 0.33, y: 0.31, front: true },
+  { id: 'body', partId: 'body', label: null, dent: null, note: null, x: 0.26, y: 0.53, front: true },
+  { id: 'windows:0', partId: 'windows', label: 'Vitre avant gauche', dent: null, note: null, x: 0.36, y: 0.33, front: true },
+  { id: 'windows:6', partId: 'windows', label: 'Pare-brise', dent: null, note: null, x: 0.31, y: 0.3, front: true },
+  { id: 'body:0', partId: 'body', label: 'Portière avant gauche', dent: null, note: null, x: 0.27, y: 0.55, front: true },
+  { id: 'dent:1', partId: 'body', label: 'Choc avant', dent: 'heavy', note: null, x: 0.22, y: 0.5, front: true },
+  { id: 'fuel_tank', partId: 'fuel_tank', label: null, dent: null, note: null, x: 0.47, y: 0.47, front: false },
+  { id: 'tire_fl', partId: 'tire_fl', label: null, dent: null, note: null, x: 0.17, y: 0.63, front: true },
+  { id: 'tire_fr', partId: 'tire_fr', label: null, dent: null, note: null, x: 0.33, y: 0.68, front: true },
+  { id: 'tire_rl', partId: 'tire_rl', label: null, dent: null, note: null, x: 0.43, y: 0.58, front: true },
+  { id: 'tire_rr', partId: 'tire_rr', label: null, dent: null, note: null, x: 0.52, y: 0.6, front: false },
+  { id: 'note:1', partId: null, label: null, dent: null, note: 1, x: 0.25, y: 0.47, front: true },
 ];
 
-export const MOCK_SCAN = {
-  duration: 2000,
-  steps: ['Moteur', 'Réservoir', 'Tôlerie', 'Vitres', 'Pneu avant gauche', 'Pneu avant droit', 'Pneu arrière gauche', 'Pneu arrière droit'],
-};
+/** Length of the 3D scan when the menu opens in the dev server. */
+export const MOCK_SCAN_MS = 2000;
 
 const minigameFor = (partId?: string) => MINIGAMES[partId?.startsWith('tire_') ? 'tire' : partId ?? ''];
 

@@ -1,5 +1,7 @@
 import { STATUS_LABELS, Toggle } from '../components/Controls';
+import { Metrics } from '../components/PartMarkers';
 import { EmptyState, Section } from '../components/Section';
+import { repairOrder } from '../lib/repairOrder';
 import { matchesQuery } from '../lib/search';
 import type { PartDiagnosis, SessionData, StockEntry } from '../types';
 
@@ -7,14 +9,15 @@ interface DiagnosticsViewProps {
   session: SessionData;
   query: string;
   showHealthy: boolean;
-  focusedId?: string | null;
+  /** Part shown on the car right now (3D view). */
+  focusedPartId?: string | null;
   onShowHealthyChange: (show: boolean) => void;
   onRepair: (part: PartDiagnosis) => void;
   /** Shows the part on the real car (3D view). */
   onLocate?: (partId: string) => void;
 }
 
-export function DiagnosticsView({ session, query, showHealthy, focusedId, onShowHealthyChange, onRepair, onLocate }: DiagnosticsViewProps) {
+export function DiagnosticsView({ session, query, showHealthy, focusedPartId, onShowHealthyChange, onRepair, onLocate }: DiagnosticsViewProps) {
   const stockByItem = new Map(session.stock.map((entry) => [entry.itemId, entry]));
   const visible = session.parts.filter(
     (part) =>
@@ -26,8 +29,21 @@ export function DiagnosticsView({ session, query, showHealthy, focusedId, onShow
   const categories = new Map<string, PartDiagnosis[]>();
   for (const part of visible) categories.set(part.category, [...(categories.get(part.category) ?? []), part]);
 
+  // The advised order: the first repair with its reason, then a step number on each part to repair.
+  const order = repairOrder(session.parts);
+  const steps = new Map(order.map(({ part, step }) => [part.id, step]));
+  const first = order[0];
+
   return (
     <>
+      {first && !query && (
+        <button type="button" className="advice" onClick={() => onLocate?.(first.part.id)}>
+          <span className="advice-label">À faire en premier</span>
+          <strong>{first.part.label}</strong>
+          <span className="advice-reason">{first.reason}</span>
+        </button>
+      )}
+
       <div className="filter-row">
         Afficher les pièces en bon état
         <Toggle checked={showHealthy} label="Afficher les pièces en bon état" onChange={onShowHealthyChange} />
@@ -40,7 +56,8 @@ export function DiagnosticsView({ session, query, showHealthy, focusedId, onShow
               key={part.id}
               part={part}
               stock={stockByItem.get(part.item)}
-              focused={part.id === focusedId}
+              step={steps.get(part.id)}
+              focused={part.id === focusedPartId}
               onRepair={onRepair}
               onLocate={onLocate}
             />
@@ -58,13 +75,15 @@ export function DiagnosticsView({ session, query, showHealthy, focusedId, onShow
 interface PartRowProps {
   part: PartDiagnosis;
   stock: StockEntry | undefined;
+  /** Advised repair step, for a part to repair. */
+  step?: number;
   focused: boolean;
   onRepair: (part: PartDiagnosis) => void;
   onLocate?: (partId: string) => void;
 }
 
 // Dot, name and health; the repair line only when the part needs one. Clicking it shows the part on the car.
-function PartRow({ part, stock, focused, onRepair, onLocate }: PartRowProps) {
+function PartRow({ part, stock, step, focused, onRepair, onLocate }: PartRowProps) {
   const available = stock?.quantity ?? 0;
   const enoughStock = available >= part.quantity;
 
@@ -77,7 +96,7 @@ function PartRow({ part, stock, focused, onRepair, onLocate }: PartRowProps) {
         aria-pressed={focused}
         onClick={() => onLocate?.(part.id)}
       >
-        <span className="part-dot" />
+        {step ? <span className="part-step">{step}</span> : <span className="part-dot" />}
         <span className="part-name">{part.label}</span>
         <span className="part-health">{part.health}%</span>
       </button>
@@ -85,6 +104,7 @@ function PartRow({ part, stock, focused, onRepair, onLocate }: PartRowProps) {
         <div style={{ width: `${part.health}%` }} />
       </div>
       <p className="part-detail">{part.detail}</p>
+      {focused && part.metrics.length > 0 && <Metrics part={part} />}
       {part.needsRepair && (
         <div className="part-repair">
           <span className={enoughStock ? undefined : 'text-danger'}>

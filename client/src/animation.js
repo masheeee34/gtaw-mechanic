@@ -3,7 +3,6 @@
 import { approachPoint } from './approach.js';
 import { loadAnimDict } from './assets.js';
 import { WHEEL_BONES, delay } from './vehicle.js';
-import { putWheelBack, takeWheelOff } from './wheels.js';
 
 const HOOD = 4;
 const TURN_MS = 800;
@@ -35,15 +34,14 @@ export function partPositions(vehicle, part) {
   };
 }
 
-/** Turns the mechanic to the part, opens the hood or takes the wheel off, and starts the work animation. */
-export async function startWork(vehicle, part) {
+/** Turns the mechanic to the part, opens the hood if needed and starts the work animation. */
+export async function startWork(vehicle, part, positions = partPositions(vehicle, part)) {
   const ped = PlayerPedId();
-  const { stand, face } = partPositions(vehicle, part);
+  const { face } = positions;
   const [x, y, z] = face;
   TaskTurnPedToFaceCoord(ped, x, y, z, TURN_MS);
   await delay(TURN_MS);
   if (part.type === 'engine') SetVehicleDoorOpen(vehicle, HOOD, false, false);
-  if (part.type === 'tire') await takeWheelOff(vehicle, part.wheel, stand);
 
   const { animation } = part;
   if (animation.scenario) {
@@ -64,5 +62,4 @@ export function stopWork(vehicle, part) {
   }
 
   if (part?.type === 'engine' && DoesEntityExist(vehicle)) SetVehicleDoorShut(vehicle, HOOD, false);
-  if (part?.type === 'tire') putWheelBack(vehicle);
 }
