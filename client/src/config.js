@@ -30,10 +30,6 @@ export function parseConfig(raw) {
     }
   }
 
-  if (config.diagnostic !== undefined && !(config.diagnostic.duration > 0)) {
-    fail('diagnostic.duration doit être positif.');
-  }
-
   if (!config.thresholds || !(config.thresholds.good > config.thresholds.worn)) {
     fail('thresholds.good doit être supérieur à thresholds.worn.');
   }

@@ -26,6 +26,7 @@ import { createRpc } from './rpc.js';
 import { applyRepair, delay, findNearestVehicle, readVehicleState, requestControl, vehicleDisplayName } from './vehicle.js';
 import { WHEEL_OFF_STATE, endWheelChange, fitNewWheel, removeWheel, showWheelOff, startWheelChange } from './wheels.js';
 import { Control, drawObjective, drawText3d, groundZ, pressed } from './world.js';
+import { tourStops } from './view.js';
 import { distance, findGarage, flatDistance } from './zones.js';
 
 const RESOURCE = GetCurrentResourceName();
@@ -43,7 +44,6 @@ const HEAD_BONE = 31086;
 const config = parseConfig(LoadResourceFile(RESOURCE, 'config.json'));
 const partsById = new Map(config.parts.map((part) => [part.id, part]));
 const garagesById = new Map(config.garages.map((garage) => [garage.id, garage]));
-const scanDuration = config.diagnostic?.duration ?? 3000;
 const rpc = createRpc({ emitNet, onNet, prefix: RESOURCE });
 
 /**
@@ -199,19 +199,20 @@ async function openInspection(target = 0) {
 
     const { plate, stock, history, notes } = response.data;
     session = { vehicle, netId, garage, plate, notes, job: null, prop: 0, acting: false, watcher: setInterval(watchSession, WATCH_INTERVAL_MS) };
+    const diagnosis = inspect(vehicle);
+    // The 3D scan: the camera goes close to the worst parts while the NUI reveals each spot, then the menu.
+    const scan = startView(vehicle, config.parts, notes, tourStops(diagnosis.parts));
     sendNui('open', {
       vehicle: { model: vehicleDisplayName(vehicle), plate, garageId: garage.id, garageLabel: garage.label },
-      ...inspect(vehicle),
+      ...diagnosis,
       stock: withItemLabels(stock),
       history: withPartLabels(history),
       notes,
-      scan: scanDuration,
+      scan,
     });
     SetNuiFocus(true, true);
-    // The 3D scan: the camera turns around the car while the NUI reveals each spot, then the menu.
-    startView(vehicle, config.parts, notes, scanDuration);
     updateTick();
-    setTimeout(() => stopTablet(tablet), scanDuration);
+    setTimeout(() => stopTablet(tablet), scan);
   } finally {
     opening = false;
   }

@@ -9,7 +9,7 @@ Standalone mechanic job for FiveM: vehicle diagnostics, interactive repairs, gar
 ## Features
 
 - **No command needed**: walking up to a car inside a garage shows `[E] Inspecter le véhicule` (mechanics only), a GTAW-style prompt drawn by the NUI like every key prompt of the job. F7 or `/mecano` also work.
-- **3D diagnostic**: the mechanic takes out a tablet, then the camera makes a full turn around the real car while each spot appears on it, before the menu slides in on the right. It reads the vehicle's real state (engine, fuel tank, bodywork and doors, windows, each tire), with a health bar and status per part. Parts the model does not have, like the side wheels of a bike, are skipped.
+- **3D diagnostic**: the mechanic takes out a tablet, then the camera goes close to the worst parts one by one, while each spot appears on the car, and comes back to the whole car before the menu slides in on the right. It reads the vehicle's real state (engine, fuel tank, bodywork and doors, windows, each tire), with a health bar and status per part. Parts the model does not have, like the side wheels of a bike, are skipped.
 - **3D view of the car**, while the menu is open:
   - a marker on the car itself for each part, and one for each broken window, damaged door and dent, placed on the model's bones. Dents come from the game's own deformation, probed around the body, light or heavy;
   - click a marker (or a part in the list, or a repair in the history) to move the camera onto it and see its detail: health, the game's raw readings (engine temperature and oil, fuel), the part needed and « Lancer la réparation »;

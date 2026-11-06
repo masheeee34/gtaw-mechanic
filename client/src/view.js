@@ -208,3 +208,20 @@ export function dentSpots(bodyPartId, dims, depthAt) {
     ];
   });
 }
+
+// The 3D scan: the camera arrives on the whole car, then goes close to the worst parts one by one, and
+// comes back to the whole car before the menu opens. All durations in milliseconds.
+export const TOUR = { enter: 1000, move: 900, hold: 600, back: 900, noStops: 600, maxStops: 3 };
+
+/** Ids of the parts the scan visits: the ones to repair, worst first, at most `TOUR.maxStops`. */
+export function tourStops(diagnoses) {
+  return diagnoses
+    .filter((part) => part.needsRepair)
+    .sort((a, b) => a.health - b.health)
+    .slice(0, TOUR.maxStops)
+    .map((part) => part.id);
+}
+
+/** Total length of the scan for that many stops. */
+export const tourDuration = (stops) =>
+  TOUR.enter + (stops === 0 ? TOUR.noStops : stops * (TOUR.move + TOUR.hold) + TOUR.back);

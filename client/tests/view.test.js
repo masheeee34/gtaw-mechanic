@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DENT_DEPTH, dentProbes, dentSpots, facesCamera, focusPose, overviewPose, partAnchor, partSpots } from '../src/view.js';
+import { DENT_DEPTH, TOUR, dentProbes, dentSpots, facesCamera, focusPose, overviewPose, partAnchor, partSpots, tourDuration, tourStops } from '../src/view.js';
 
 // Rough bounding box of a sedan: 2 m wide, 4.6 m long, 1.5 m high.
 const sedan = { min: { x: -1.0, y: -2.3, z: -0.5 }, max: { x: 1.0, y: 2.3, z: 1.0 } };
@@ -118,5 +118,28 @@ describe('camera zoom and lift', () => {
     const high = overviewPose(sedan, 0, wide, 1, 1);
     expect(far.camera.y).toBeGreaterThan(base.camera.y);
     expect(high.camera.z).toBeCloseTo(base.camera.z + 1);
+  });
+});
+
+describe('3D scan tour', () => {
+  const part = (id, health, needsRepair = health < 100) => ({ id, health, needsRepair });
+
+  it('visits the worst parts to repair first, and skips the ones in good condition', () => {
+    const stops = tourStops([part('body', 58), part('tire_fr', 100), part('engine', 15), part('windows', 67)]);
+
+    expect(stops).toEqual(['engine', 'body', 'windows']);
+  });
+
+  it('visits at most a few parts so the scan stays short', () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((id, index) => part(id, index * 10));
+
+    expect(tourStops(many)).toHaveLength(TOUR.maxStops);
+  });
+
+  it('lasts longer with more stops, and stays short when nothing is to repair', () => {
+    expect(tourStops([part('engine', 100)])).toEqual([]);
+    expect(tourDuration(0)).toBeLessThan(tourDuration(1));
+    expect(tourDuration(3)).toBeGreaterThan(tourDuration(1));
+    expect(tourDuration(TOUR.maxStops)).toBeLessThan(8000);
   });
 });

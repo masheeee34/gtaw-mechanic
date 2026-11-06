@@ -3,7 +3,6 @@
   "interactionDistance": 6.0,
   "historyLimit": 25,
   "thresholds": { "good": 70, "worn": 35 },
-  "diagnostic": { "duration": 3000 },
   "garages": [
     {
       "id": "burton", "label": "Los Santos Customs - Burton", "center": [-337.4, -136.9, 39.0], "radius": 25.0,

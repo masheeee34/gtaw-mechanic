@@ -1,11 +1,10 @@
-// Scripted camera of the inspection menu: shows the real car, turns around it, zooms, moves onto one
-// spot, and projects every spot (parts, broken windows, damaged doors, dents, pinned notes) on the
-// screen for the NUI.
+// Scripted camera of the inspection menu: shows the real car, goes close to its worst parts during the
+// scan, turns around it, zooms, moves onto one spot, and projects every spot (parts, broken windows,
+// damaged doors, dents, pinned notes) on the screen for the NUI.
 
 import { readVehicleState } from './vehicle.js';
-import { FOV, dentSpots, facesCamera, focusPose, overviewPose, partSpots } from './view.js';
+import { FOV, TOUR, dentSpots, facesCamera, focusPose, overviewPose, partSpots, tourDuration } from './view.js';
 
-const ENTER_MS = 800;
 const MOVE_MS = 700;
 const LEAVE_MS = 500;
 const DEFAULT_YAW = -40;
@@ -17,9 +16,9 @@ const NOTE_RAISE = 0.18;
 
 /**
  * @type {{
- *   vehicle: number, dims: any, spots: Map<string, any>, aspect: number, cam: number,
- *   yaw: number, zoom: number, lift: number, focused: any, xray: boolean,
- *   sweep: { start: number, duration: number } | null, last: string,
+ *   vehicle: number, dims: any, parts: Map<string, any>, spots: Map<string, any>, aspect: number,
+ *   cam: number, yaw: number, zoom: number, lift: number, focused: any, xray: boolean,
+ *   tour: { start: number, stops: string[], step: number } | null, last: string,
  * } | null}
  */
 let view = null;
@@ -82,29 +81,32 @@ function currentPose() {
 }
 
 // Smooth move: a new camera, interpolated from the current one.
-function moveTo(pose) {
+function moveTo(pose, ms = MOVE_MS) {
   const next = CreateCam('DEFAULT_SCRIPTED_CAMERA', false);
   place(next, view.vehicle, pose);
-  SetCamActiveWithInterp(next, view.cam, MOVE_MS, 1, 1);
-  destroyLater(view.cam, MOVE_MS);
+  SetCamActiveWithInterp(next, view.cam, ms, 1, 1);
+  destroyLater(view.cam, ms);
   view.cam = next;
 }
 
-const usable = () => view !== null && view.sweep === null && DoesEntityExist(view.vehicle);
+// The camera cannot be moved by hand during the scan.
+const usable = () => view !== null && view.tour === null && DoesEntityExist(view.vehicle);
 
 export const viewActive = () => view !== null;
 
 /**
- * Starts the view on the whole car. With `sweepMs`, the camera first makes a full turn around the car
- * (the 3D diagnostic scan), during which the mechanic cannot move it.
+ * Starts the view on the whole car. With `stops` (part ids), it is the 3D scan: the camera arrives on
+ * the whole car, goes close to each part in turn, then comes back. Returns the scan's length in
+ * milliseconds (0 without a scan).
  */
-export function startView(vehicle, parts, notes, sweepMs = 0) {
+export function startView(vehicle, parts, notes, stops = null) {
   if (view) stopView(true);
   const dims = readDims(vehicle);
   const cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', false);
   view = {
     vehicle,
     dims,
+    parts: new Map(parts.map((part) => [part.id, part])),
     spots: readSpots(vehicle, dims, parts, notes),
     aspect: GetAspectRatio(false),
     cam,
@@ -113,12 +115,13 @@ export function startView(vehicle, parts, notes, sweepMs = 0) {
     lift: 0,
     focused: null,
     xray: false,
-    sweep: sweepMs > 0 ? { start: GetGameTimer(), duration: sweepMs } : null,
+    tour: stops ? { start: GetGameTimer(), stops, step: -1 } : null,
     last: '',
   };
   place(cam, vehicle, overview());
   SetCamActive(cam, true);
-  RenderScriptCams(true, true, ENTER_MS, true, true);
+  RenderScriptCams(true, true, TOUR.enter, true, true);
+  return stops ? tourDuration(stops.length) : 0;
 }
 
 export function stopView(instant = false) {
@@ -182,20 +185,29 @@ export function setXray(enabled) {
   view.last = '';
 }
 
+// The scan: after the arrival, one move and one pause per part, then back to the whole car.
+function advanceTour() {
+  const { start, stops } = view.tour;
+  const elapsed = GetGameTimer() - start - TOUR.enter;
+  const step = Math.min(stops.length, Math.floor(elapsed / (TOUR.move + TOUR.hold)));
+  if (elapsed >= 0 && step > view.tour.step) {
+    view.tour.step = step;
+    const spot = step < stops.length ? view.spots.get(stops[step]) : null;
+    if (spot) {
+      moveTo(focusPose(view.parts.get(stops[step]), spot.anchor, view.dims, view.aspect, view.zoom), TOUR.move);
+    } else if (step === stops.length) {
+      moveTo(overview(), TOUR.back);
+    }
+  }
+  if (GetGameTimer() - start >= tourDuration(stops.length)) view.tour = null;
+}
+
 /** Every frame while the view is on: the spots' screen positions (0–1), or null if nothing moved. */
 export function projectMarkers() {
   if (!view || !DoesEntityExist(view.vehicle)) return null;
   HideHudAndRadarThisFrame();
 
-  if (view.sweep) {
-    const progress = Math.min(1, (GetGameTimer() - view.sweep.start) / view.sweep.duration);
-    view.yaw = DEFAULT_YAW - 360 * (1 - progress);
-    place(view.cam, view.vehicle, overview());
-    if (progress === 1) {
-      view.yaw = DEFAULT_YAW;
-      view.sweep = null;
-    }
-  }
+  if (view.tour) advanceTour();
 
   const [camX, camY, camZ] = GetFinalRenderedCamCoord();
   const [x, y, z] = GetOffsetFromEntityGivenWorldCoords(view.vehicle, camX, camY, camZ);

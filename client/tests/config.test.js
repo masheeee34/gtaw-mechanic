@@ -36,7 +36,6 @@ describe('parseConfig', () => {
     ['a part without animation', (c) => delete c.parts[0].animation, /animation/],
     ['a rack that is not a position', (c) => (c.garages[0].rack = [1, 2]), /stock du garage/],
     ['a carried prop without model', (c) => (c.items.tire.carry = { offset: [0, 0, 0] }), /objet porté/],
-    ['a zero diagnostic duration', (c) => (c.diagnostic = { duration: 0 }), /diagnostic.duration/],
   ])('rejects %s', (_name, change, message) => {
     expect(() => parseConfig(withChange(change))).toThrow(message);
   });
