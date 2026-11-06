@@ -20,7 +20,7 @@ Standalone mechanic job for FiveM: vehicle diagnostics, interactive repairs, gar
 - **The player does the job, in the world**:
   1. "Réparer" in the menu closes it and sends the mechanic to the garage's parts rack (marker on the ground).
   2. `[E]` takes the part: the mechanic bends down to pick it up, then carries it in both hands (a tire, a box of engine parts, a car door, a jerry can… set per item in `config.json`). No sprinting, jumping or getting into a car while carrying.
-  3. A marker shows where to install it on the car (the right wheel, the hood, the fuel cap…). `[E]` there turns the mechanic to the part, opens the hood if needed, plays the work animation and starts the mini-game. A tire takes two: the car goes up on a jack and the nuts are loosened, the old wheel comes off and lies on the floor (every player around sees the car without it), then the new wheel goes on and the nuts are tightened.
+  3. A marker shows where to install it on the car (the right wheel, the hood, the fuel cap…). `[E]` there turns the mechanic to the part, opens the hood if needed, plays the work animation and starts the mini-game. A tire takes two: the nuts are loosened and the old wheel comes off and lies on the floor (every player around sees the car without it), then the new wheel goes on and the nuts are tightened.
      - **Skill check**: stop the needle inside the zone. The zone shrinks and the needle speeds up each round.
      - **Lug nuts**: tighten the nuts in a star pattern, like a real wheel. Any first nut and either direction are accepted, with a time limit and a mistake budget.
      - **Wire connect**: each wire has a colour, the same colours are shuffled on the other side: connect every pair before the time runs out, with two mistakes allowed.
@@ -78,7 +78,7 @@ client/src/                 JS client, bundled with esbuild into client/dist/cli
   props.js, assets.js       carried props and tablet, model and animation loading
   world.js                  ground markers, /ame text, keys
   camera.js, view.js        3D view: scripted camera, spots projected on the car (view.js is pure)
-  wheels.js                 tire change: jack, wheel off and on (state bag), wheels on the floor
+  wheels.js                 tire change: wheel off and on (state bag), loose wheels on the floor
   grime.js                  grease on the mechanic (state bag), washing
   emotes.js                 French /ame lines (pure)
   vehicle.js                natives: read state, apply repairs

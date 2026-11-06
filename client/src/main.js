@@ -24,7 +24,7 @@ import {
 } from './props.js';
 import { createRpc } from './rpc.js';
 import { applyRepair, delay, findNearestVehicle, readVehicleState, requestControl, vehicleDisplayName } from './vehicle.js';
-import { WHEEL_OFF_STATE, fitNewWheel, jackDown, jackUp, removeWheel, showWheelOff } from './wheels.js';
+import { WHEEL_OFF_STATE, endWheelChange, fitNewWheel, removeWheel, showWheelOff, startWheelChange } from './wheels.js';
 import { Control, drawObjective, drawText3d, groundZ, pressed } from './world.js';
 import { distance, findGarage, flatDistance } from './zones.js';
 
@@ -329,7 +329,7 @@ async function installPart() {
   ame('install', part.id);
   if (part.type === 'tire') {
     current.wheelSpot = partPositions(current.vehicle, part);
-    await jackUp(current.vehicle, current.wheelSpot);
+    await startWheelChange(current.vehicle, current.wheelSpot);
   }
   await startWork(current.vehicle, part, workSpot(current, part));
   if (session !== current) return;
@@ -375,7 +375,7 @@ async function endJob(current, { putBack }) {
   const part = partsById.get(job.partId);
   if (job.stage === Stage.WORKING) stopWork(current.vehicle, part);
   if (part.type === 'tire') {
-    jackDown(current.vehicle);
+    endWheelChange(current.vehicle);
     current.wheelSpot = null;
   }
   if (!putBack || !job.holdingPart) return null;
@@ -440,7 +440,7 @@ onNui('repair:finish', async ({ partId, success, cancelled, quality }) => {
     // Back to the car with the part in hand, or, wheel off, back to fitting the new one.
     if (current.job.stage === Stage.INSTALL) {
       if (part.type === 'tire') {
-        jackDown(current.vehicle);
+        endWheelChange(current.vehicle);
         current.wheelSpot = null;
       }
       current.prop = await startCarrying(config.items[part.item]);
@@ -476,7 +476,7 @@ onNui('repair:finish', async ({ partId, success, cancelled, quality }) => {
   applyRepair(current.vehicle, part, repairLevel(score));
   addDirt();
   if (part.type === 'tire') {
-    jackDown(current.vehicle);
+    endWheelChange(current.vehicle);
     current.wheelSpot = null;
   }
   ame(score < RUSHED_BELOW ? 'rushed' : 'done', partId);
@@ -594,7 +594,7 @@ on('onResourceStop', (resource) => {
   if (resource !== RESOURCE) return;
   stopView(true);
   if (!session) return;
-  jackDown(session.vehicle);
+  endWheelChange(session.vehicle);
   stopCarrying(session.prop);
   stopWork(session.vehicle, session.job ? partsById.get(session.job.partId) : null);
   ClearPedTasks(PlayerPedId());

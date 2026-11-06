@@ -6,7 +6,9 @@ import type { PartDiagnosis, PartMarker, PartStatus, StockEntry, VehicleNote } f
 
 const DEGREES_PER_PIXEL = 0.35;
 const LIFT_PER_PIXEL = 0.01;
-const ZOOM_STEP = 1.1;
+// Zoom follows how far the wheel turned, so a trackpad zooms smoothly and a mouse wheel notch is about 10 %.
+const ZOOM_PER_DELTA = 0.001;
+const MAX_ZOOM_DELTA = 300;
 
 interface PartMarkersProps {
   parts: PartDiagnosis[];
@@ -77,7 +79,9 @@ export function PartMarkers(props: PartMarkersProps) {
   };
 
   const onWheel = (event: WheelEvent) => {
-    if (!revealing) onZoom(event.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+    if (revealing || event.deltaY === 0) return;
+    const delta = Math.max(-MAX_ZOOM_DELTA, Math.min(MAX_ZOOM_DELTA, event.deltaY));
+    onZoom(Math.exp(delta * ZOOM_PER_DELTA));
   };
 
   return (

@@ -100,9 +100,9 @@ describe('repairLevel', () => {
 describe('tire objectives', () => {
   const wheel = { ...tire, type: 'tire' };
 
-  it('asks to jack the car up at the wheel, then to put the new wheel on', () => {
+  it('asks to take the wheel off, then to put the new wheel on', () => {
     const job = advance(startJob(wheel), 'partTaken');
-    expect(objective(job, wheel, tireItem).near[0].text).toBe('Lever la voiture et démonter : Pneu avant gauche');
+    expect(objective(job, wheel, tireItem).near[0].text).toBe('Démonter la roue : Pneu avant gauche');
 
     const remount = { ...job, stage: Stage.REMOUNT, wheelOff: true };
     expect(objective(remount, wheel, tireItem)).toMatchObject({ target: 'part', near: [{ key: 'E', text: 'Poser la roue neuve' }, expect.anything()] });

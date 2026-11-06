@@ -134,6 +134,10 @@ describe('PartMarkers', () => {
     expect(onZoom).toHaveBeenCalledWith(expect.any(Number));
     expect(onZoom.mock.calls[0][0]).toBeLessThan(1);
 
+    // A small trackpad delta zooms less than a mouse wheel notch.
+    fireEvent.wheel(screen.getByRole('button', { name: 'Transparence' }).closest('.vehicle-view')!, { deltaY: -10 });
+    expect(1 - onZoom.mock.calls[1][0]).toBeLessThan(1 - onZoom.mock.calls[0][0]);
+
     await userEvent.click(screen.getByRole('button', { name: 'Transparence' }));
     expect(onXrayChange).toHaveBeenCalledWith(true);
   });

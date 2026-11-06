@@ -6,7 +6,7 @@
 //   working  the mini-game is running
 //   remount  tires only: the old wheel is off, the new one has to be put on and tightened
 //
-// A tire takes two mini-games: loosen the nuts (the car is jacked up and the wheel comes off), then
+// A tire takes two mini-games: loosen the nuts (the wheel comes off), then
 // put the new wheel on and tighten them.
 
 export const Stage = Object.freeze({ FETCH: 'fetch', INSTALL: 'install', WORKING: 'working', REMOUNT: 'remount' });
@@ -74,7 +74,7 @@ export function objective(job, part, item) {
       return {
         target: 'part',
         far: [{ text: `Apportez la pièce : ${part.label}.` }, giveUp],
-        near: [{ key: Key.INTERACT, text: part.type === 'tire' ? `Lever la voiture et démonter : ${part.label}` : `Installer : ${part.label}` }, giveUp],
+        near: [{ key: Key.INTERACT, text: part.type === 'tire' ? `Démonter la roue : ${part.label}` : `Installer : ${part.label}` }, giveUp],
       };
     case Stage.REMOUNT:
       return {
