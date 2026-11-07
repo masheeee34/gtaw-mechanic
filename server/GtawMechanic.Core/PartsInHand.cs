@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace GtawMechanic.Core
 {
@@ -33,6 +34,17 @@ namespace GtawMechanic.Core
 
         public bool Holds(string player, string garageId, string partId) =>
             _held.TryGetValue(player, out var part) && part.GarageId == garageId && part.PartId == partId;
+
+        /// <returns>The part the player is holding, or null.</returns>
+        public HeldPart Get(string player) => _held.TryGetValue(player, out var part) ? part : null;
+
+        /// <summary>Takes every held part back at once (the resource is stopping).</summary>
+        public IReadOnlyList<HeldPart> ReleaseAll()
+        {
+            var parts = _held.Values.ToList();
+            _held.Clear();
+            return parts;
+        }
 
         /// <returns>The part the player was holding, or null.</returns>
         public HeldPart Release(string player)

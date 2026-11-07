@@ -20,7 +20,7 @@ Standalone mechanic job for FiveM: vehicle diagnostics, interactive repairs, gar
 - **The player does the job, in the world**:
   1. "Réparer" in the menu closes it and sends the mechanic to the garage's parts rack (marker on the ground).
   2. `[E]` takes the part: the mechanic bends down to pick it up, then carries it in both hands (a tire, a box of engine parts, a car door, a jerry can… set per item in `config.json`). No sprinting, jumping or getting into a car while carrying.
-  3. A marker shows where to install it on the car (the right wheel, the hood, the fuel cap…). `[E]` there turns the mechanic to the part, opens the hood if needed, plays the work animation and starts the mini-game. A tire takes two: the nuts are loosened and the old wheel comes off and lies on the floor (every player around sees the car without it), then the new wheel goes on and the nuts are tightened.
+  3. A marker shows where to install it on the car (the right wheel, the hood, the fuel cap…). `[E]` there turns the mechanic to the part, opens the hood if needed, plays the work animation and starts the mini-game. A tire takes two: the nuts are loosened and the old wheel comes off and lies on the floor (every player around sees the car without it, and the server gives the wheel back if the mechanic disconnects), then the new wheel goes on and the nuts are tightened.
      - **Skill check**: stop the needle inside the zone. The zone shrinks and the needle speeds up each round.
      - **Lug nuts**: tighten the nuts in a star pattern, like a real wheel. Any first nut and either direction are accepted, with a time limit and a mistake budget.
      - **Wire connect**: each wire has a colour, the same colours are shuffled on the other side: connect every pair before the time runs out, with two mistakes allowed.
@@ -28,7 +28,7 @@ Standalone mechanic job for FiveM: vehicle diagnostics, interactive repairs, gar
   4. How well the mini-game went sets how well the part is repaired: a careful job restores it completely, a rushed one leaves it at 85 % (and the /ame says so). Fail it and the part goes back in your hands to retry at the car. `[Backspace]` gives up at any time (not X: GTAW uses X for its interaction wheel) and puts the part back on the shelf.
 - **Grease**: each repair leaves the mechanic a little dirtier, on hands and clothes, visible to every player, until they wash at the garage's workbench (`[E] Se laver les mains`).
 - **/ame (written roleplay)**: each action shows `* Name action` above the mechanic's head for players within 20 m, in French and in the /ame colour: the tablet diagnostic, taking a part, starting the work, taking a wheel off and fitting the new one, finishing (or rushing it), failing, putting a part back. The server only relays an action id and a part id (validated, rate-limited); every client writes the text itself, so nobody can make another player display free text.
-- **Garage stock**: taking a part consumes the garage's stock, stored in MySQL. Abandoned or unused parts go back on the shelf, including when the player disconnects. Admins restock with a command.
+- **Garage stock**: taking a part consumes the garage's stock, stored in MySQL. Abandoned or unused parts go back on the shelf, including when the player disconnects or the resource restarts. Admins restock with a command.
 - **Repair history** per plate, across garages.
 - **Search** across parts, stock and history, by name, description or category.
 
@@ -78,7 +78,7 @@ client/src/                 JS client, bundled with esbuild into client/dist/cli
   props.js, assets.js       carried props and tablet, model and animation loading
   world.js                  ground markers, /ame text, keys
   camera.js, view.js        3D view: scripted camera, spots projected on the car (view.js is pure)
-  wheels.js                 tire change: wheel off and on (state bag), loose wheels on the floor
+  wheels.js                 tire change: wheel off and on (list kept by the server), loose wheels on the floor
   grime.js                  grease on the mechanic (state bag), washing
   emotes.js                 French /ame lines (pure)
   vehicle.js                natives: read state, apply repairs

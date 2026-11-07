@@ -24,7 +24,7 @@ import {
 } from './props.js';
 import { createRpc } from './rpc.js';
 import { applyRepair, delay, findNearestVehicle, readVehicleState, requestControl, vehicleDisplayName } from './vehicle.js';
-import { WHEEL_OFF_STATE, endWheelChange, fitNewWheel, removeWheel, showWheelOff, startWheelChange } from './wheels.js';
+import { endWheelChange, fitNewWheel, reconcileWheels, removeWheel, replaceWheelsOff, setWheelOff, startWheelChange } from './wheels.js';
 import { Control, drawObjective, drawText3d, groundZ, pressed } from './world.js';
 import { tourStops } from './view.js';
 import { distance, findGarage, flatDistance } from './zones.js';
@@ -141,6 +141,7 @@ async function wash() {
 
 // Twice a second, not every frame: is a mechanic on foot next to a car, inside a garage?
 function refreshPrompt() {
+  reconcileWheels();
   promptVehicle = 0;
   washGarage = null;
   if (isMechanic && !session && !opening && !washing) {
@@ -351,6 +352,7 @@ async function remountWheel() {
   }
 
   fitNewWheel(current.vehicle);
+  releaseWheel(current);
   current.job = advance(current.job, 'remountStarted');
   ame('refit', part.id);
   await startWork(current.vehicle, part, workSpot(current, part));
@@ -360,6 +362,9 @@ async function remountWheel() {
   sendNui('minigame', { partId: part.id, minigame: minigameFor(current.job, part) });
   SetNuiFocus(true, true);
 }
+
+// The server keeps the list of wheels that are off: tell it the wheel is back on.
+const releaseWheel = (current) => void rpc.request('wheel', current.garage.id, current.netId, -1);
 
 /** The part's mini-game; the tire one loosens the nuts first, then tightens them on the new wheel. */
 function minigameFor(job, part) {
@@ -378,6 +383,7 @@ async function endJob(current, { putBack }) {
   if (part.type === 'tire') {
     endWheelChange(current.vehicle);
     current.wheelSpot = null;
+    if (job.wheelOff) releaseWheel(current);
   }
   if (!putBack || !job.holdingPart) return null;
 
@@ -456,7 +462,11 @@ onNui('repair:finish', async ({ partId, success, cancelled, quality }) => {
   }
 
   if (part.type === 'tire' && !current.job.wheelOff) {
-    // Nuts loosened: the old wheel comes off; the new one has to go on, in a second mini-game.
+    // Nuts loosened: the server records the wheel is off and tells every player; the old wheel lies on
+    // the floor and the new one has to go on, in a second mini-game.
+    const taken = await rpc.request('wheel', current.garage.id, current.netId, part.wheel);
+    if (session !== current) return fail('no_session');
+    if (!taken.ok) return retry(taken.error);
     await removeWheel(current.vehicle, part.wheel, workSpot(current, part).stand);
     current.job = advance(current.job, 'wheelRemoved');
     SetNuiFocus(false, false);
@@ -567,11 +577,10 @@ function drawEmotes() {
   if (emotes.size === 0) updateTick();
 }
 
-// A wheel taken off by any mechanic, shown on every client that has the vehicle (wheels.js).
-AddStateBagChangeHandler(WHEEL_OFF_STATE, '', (bagName, _key, value) => {
-  const vehicle = GetEntityFromStateBagName(bagName);
-  if (vehicle !== 0) showWheelOff(vehicle, value ?? null);
-});
+// A wheel taken off by any mechanic: the server tells every player, and who joins asks for the list.
+onNet(`${RESOURCE}:wheel`, (netId, tyre) => setWheelOff(netId, tyre));
+onNet(`${RESOURCE}:wheels`, (json) => replaceWheelsOff(JSON.parse(json)));
+emitNet(`${RESOURCE}:wheelSync`);
 
 // Grease on a mechanic, drawn on every client that has them around (grime.js).
 AddStateBagChangeHandler(DIRT_STATE, '', (bagName, _key, value) => {

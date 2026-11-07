@@ -113,5 +113,7 @@ namespace GtawMechanic.Core
         public string Label { get; set; }
         public string Item { get; set; }
         public int Quantity { get; set; }
+        /// <summary>GTA tyre index of a tire part (0, 1, 4 or 5); null for the other parts.</summary>
+        public int? Wheel { get; set; }
     }
 }

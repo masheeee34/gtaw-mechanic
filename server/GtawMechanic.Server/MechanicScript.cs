@@ -35,6 +35,7 @@ namespace GtawMechanic.Server
         private readonly PartsInHand _partsInHand = new PartsInHand();
         private readonly Emotes _emotes;
         private readonly Cooldown _noteCooldown;
+        private readonly WheelsOff _wheels = new WheelsOff();
         private bool _ready;
 
         public MechanicScript()
@@ -68,7 +69,10 @@ namespace GtawMechanic.Server
             EventHandlers[$"{EventPrefix}:ame"] += new Action<Player, string, string>(OnEmote);
             EventHandlers[$"{EventPrefix}:addNote"] += new Action<Player, int, string, int, float, float, float, string>(OnAddNote);
             EventHandlers[$"{EventPrefix}:deleteNote"] += new Action<Player, int, string, int, long>(OnDeleteNote);
+            EventHandlers[$"{EventPrefix}:wheel"] += new Action<Player, int, string, int, int>(OnWheel);
+            EventHandlers[$"{EventPrefix}:wheelSync"] += new Action<Player>(OnWheelSync);
             EventHandlers["playerDropped"] += new Action<Player, string>(OnPlayerDropped);
+            EventHandlers["onResourceStop"] += new Action<string>(OnResourceStop);
             API.RegisterCommand("mecano_restock", new Action<int, List<object>, string>(OnRestock), true);
         }
 
@@ -245,6 +249,74 @@ namespace GtawMechanic.Server
             }
         }
 
+        // A tire change takes a wheel off the vehicle for every player around. The server owns that state
+        // (the client only asks): it checks the mechanic is at the vehicle and holds that very tire, and
+        // gives the wheel back when the mechanic finishes, gives up, disconnects or the resource stops.
+        private void OnWheel([FromSource] Player player, int requestId, string garageId, int vehicleNetId, int tyre)
+        {
+            var access = AuthorizeAtVehicle(player, garageId, vehicleNetId);
+            if (access.Error != null)
+            {
+                Respond(player, requestId, Failure(access.Error));
+                return;
+            }
+
+            if (tyre < 0)
+            {
+                if (_wheels.Clear(player.Handle, vehicleNetId)) BroadcastWheel(vehicleNetId, -1);
+                Respond(player, requestId, Success(new { }));
+                return;
+            }
+
+            var held = _partsInHand.Get(player.Handle);
+            var part = held == null ? null : _config.FindPart(held.PartId);
+            if (part == null || part.Type != "tire" || part.Wheel != tyre || held.GarageId != access.Garage.Id)
+            {
+                Respond(player, requestId, Failure(Errors.NoPart));
+                return;
+            }
+            if (!_wheels.TrySet(player.Handle, vehicleNetId, tyre))
+            {
+                Respond(player, requestId, Failure(Errors.Busy));
+                return;
+            }
+
+            BroadcastWheel(vehicleNetId, tyre);
+            Respond(player, requestId, Success(new { }));
+        }
+
+        // A player who joins, or whose script restarts, learns which wheels are off right now.
+        private void OnWheelSync([FromSource] Player player)
+        {
+            player.TriggerEvent($"{EventPrefix}:wheels", JsonConvert.SerializeObject(_wheels.Snapshot()));
+        }
+
+        private void BroadcastWheel(int vehicleNetId, int tyre) => TriggerClientEvent($"{EventPrefix}:wheel", vehicleNetId, tyre);
+
+        // The parts taken off the shelf live in memory only: give them back when the resource stops, or
+        // the stock they took would be lost.
+        private void OnResourceStop(string resource)
+        {
+            if (resource != _resourceName) return;
+            foreach (var vehicleNetId in _wheels.ClearAll()) BroadcastWheel(vehicleNetId, -1);
+            if (_service == null) return;
+
+            foreach (var held in _partsInHand.ReleaseAll())
+            {
+                try
+                {
+                    // On another thread, so waiting here cannot block the database call itself.
+                    var done = System.Threading.Tasks.Task.Run(() => _service.ReturnPartsAsync(held.GarageId, held.PartId))
+                        .Wait(TimeSpan.FromSeconds(3));
+                    if (!done) Log($"^1Arrêt : la pièce {held.PartId} du garage {held.GarageId} n'a pas pu être remise en stock à temps.^7");
+                }
+                catch (Exception exception)
+                {
+                    Log($"^1Arrêt : la pièce {held.PartId} du garage {held.GarageId} n'a pas été remise en stock : {exception.Message}^7");
+                }
+            }
+        }
+
         // /ame: relays a mechanic's action to every client, which shows it above the head if close enough.
         private void OnEmote([FromSource] Player player, string action, string partId)
         {
@@ -257,6 +329,7 @@ namespace GtawMechanic.Server
         {
             _emotes.Forget(player.Handle);
             _noteCooldown.Forget(player.Handle);
+            foreach (var vehicleNetId in _wheels.ClearPlayer(player.Handle)) BroadcastWheel(vehicleNetId, -1);
             try
             {
                 await PutBackHeldPartAsync(player.Handle);
@@ -271,8 +344,17 @@ namespace GtawMechanic.Server
         {
             var held = _partsInHand.Release(player);
             if (held == null || _service == null) return null;
-            var result = await _service.ReturnPartsAsync(held.GarageId, held.PartId);
-            return result.Stock;
+            try
+            {
+                var result = await _service.ReturnPartsAsync(held.GarageId, held.PartId);
+                return result.Stock;
+            }
+            catch (Exception)
+            {
+                // The part is off the shelf and held by nobody now: say which, so staff can restock it.
+                Log($"^1La pièce {held.PartId} du garage {held.GarageId} n'a pas pu être remise en stock.^7");
+                throw;
+            }
         }
 
         /// <summary>Re-checks on the server what the client already checked: permission, then position.</summary>
